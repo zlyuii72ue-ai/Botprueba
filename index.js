@@ -90,7 +90,6 @@ client.on('messageCreate', async (message) => {
             linksEncontrados = pruebasTexto.match(linkRegex) || [];
         }
 
-        // Filtra imágenes, videos, audios o archivos generales de evidencia
         const archivosParaEnviar = [];
         if (message.attachments && message.attachments.size > 0) {
             message.attachments.forEach(attachment => {
@@ -184,7 +183,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const ahora = new Date();
             const fechaFormateada = `${ahora.getDate()}/${ahora.getMonth() + 1}/${ahora.getFullYear()}`;
-            const embed = new EmbedBuilder().setTitle('# Ranking de Rendimiento').setColor('#6a1b9a').setTimestamp().setFooter({ text: 'SirenMc' });
+            const embed = new EmbedBuilder().setTitle('# Top Semanal').setColor('#6a1b9a').setTimestamp().setFooter({ text: 'SirenMc' });
 
             if (ranking.length === 0) {
                 embed.setDescription(`📅 ${fechaFormateada}\n\nSin registros.`);
@@ -197,7 +196,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (idx === 0) prefijo = '🥇';
                 if (idx === 1) prefijo = '🥈';
                 if (idx === 2) prefijo = '🥉';
-                description += `${prefijo} <@${user.id}>: 🔨${user.baneos} | 🔉${user.muteos} | 💚${user.revives} | ⏱️0h 0m 0s\n`;
+                description += `${prefijo} <@${user.id}>: ⚔️${user.baneos} | 🔇${user.muteos} | ♥️${user.revives} | ⌛0h 0m 0s\n`;
             });
 
             embed.setDescription(description);
@@ -209,14 +208,14 @@ client.on('interactionCreate', async (interaction) => {
             const stats = (data.staff || {})[target.id] || { baneos: 0, muteos: 0, revives: 0 };
 
             const embed = new EmbedBuilder()
-                .setTitle(`📊 Perfil: ${target.username}`)
+                .setTitle(`Evidencias de @${target.username}`)
                 .setColor('#8e24aa')
                 .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
                 .addFields(
-                    { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
-                    { name: '🔨 Bans', value: String(stats.baneos), inline: false },
-                    { name: '🔉 Mutes', value: String(stats.muteos), inline: false },
-                    { name: '💚 Revives', value: String(stats.revives), inline: false }
+                    { name: '⌛ Tiempo Total', value: '0h 0m 0s', inline: false },
+                    { name: '⚔️ Bans', value: String(stats.baneos), inline: false },
+                    { name: '🔇 Mutes', value: String(stats.muteos), inline: false },
+                    { name: '♥️ Revives', value: String(stats.revives), inline: false }
                 );
             return interaction.editReply({ embeds: [embed] });
         }
