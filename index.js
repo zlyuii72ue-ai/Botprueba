@@ -101,7 +101,6 @@ client.on('messageCreate', async (message) => {
 
     const content = message.content.trim();
     
-    // Expresión regular flexible que tolera espacios en blanco intermedios y saltos de línea irregulares
     const nickRegex = /^[^\n]*Nick:\s*([^\n]+)/im;
     const motivoRegex = /^[^\n]*Motivo:\s*([^\n]+)/im;
     const tiempoRegex = /^[^\n]*Tiempo:\s*([^\n]+)/im;
@@ -224,11 +223,19 @@ client.on('interactionCreate', async (interaction) => {
         const ranking = Object.keys(data.staff)
             .map(id => ({
                 id,
-                ...data.staff[id],
+                baneos: data.staff[id].baneos || 0,
+                muteos: data.staff[id].muteos || 0,
+                revives: data.staff[id].revives || 0,
                 total: (data.staff[id].baneos || 0) + (data.staff[id].muteos || 0) + (data.staff[id].revives || 0)
             }))
             .sort((a, b) => b.total - a.total)
             .slice(0, 10);
+
+        const ahora = new Date();
+        const diaSemana = ahora.getDay();
+        const diferencia = ahora.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
+        const lunesActual = new Date(ahora.setDate(diferencia));
+        const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
 
         const embed = new EmbedBuilder()
             .setTitle('Ranking de Rendimiento - Personal de Staff')
@@ -237,13 +244,19 @@ client.on('interactionCreate', async (interaction) => {
             .setFooter({ text: 'iLoveTungtung_' });
 
         if (ranking.length === 0) {
-            embed.setDescription('No existen registros analiticos almacenados en la base de datos actualmente.');
+            embed.setDescription(`📅 Semana: ${fechaFormateada}\n\nNo existen registros analiticos almacenados en la base de datos actualmente.`);
             return interaction.editReply({ embeds: [embed] });
         }
 
-        let description = '';
+        let description = `📅 Semana: ${fechaFormateada}\n\n`;
+        
         ranking.forEach((user, idx) => {
-            description += `**[#${idx + 1}]** <@${user.id}>\nTotal: \`${user.total}\` | Baneos: \`${user.baneos}\` | Muteos: \`${user.muteos}\` | Revives: \`${user.revives}\`\n\n`;
+            let prefijo = `**${idx + 1}.**`;
+            if (idx === 0) prefijo = '🥇';
+            if (idx === 1) prefijo = '🥈';
+            if (idx === 2) prefijo = '🥉';
+
+            description += `${prefijo} <@${user.id}>: 🔨${user.baneos} | 🔉${user.muteos} | 💚${user.revives} | ⏱️0h 0m 0s\n`;
         });
 
         embed.setDescription(description);
@@ -280,3 +293,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(CONFIG.TOKEN);
+        
