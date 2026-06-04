@@ -99,25 +99,42 @@ client.on('messageCreate', async (message) => {
     const type = data.channels?.[message.channel.id];
     if (!type) return;
 
-    const content = message.content;
-    const format = /^Nick:\s*(.+)\nMotivo:\s*(.+)\nTiempo:\s*(.+)\nPruebas:\s*(.+)$/i;
+    const content = message.content.trim();
+    
+    // Expresión regular flexible que tolera espacios en blanco intermedios y saltos de línea irregulares
+    const nickRegex = /^[^\n]*Nick:\s*([^\n]+)/im;
+    const motivoRegex = /^[^\n]*Motivo:\s*([^\n]+)/im;
+    const tiempoRegex = /^[^\n]*Tiempo:\s*([^\n]+)/im;
+    const pruebasRegex = /^[^\n]*Pruebas:\s*([\s\S]+)/im;
 
-    if (!format.test(content)) {
+    const matchNick = content.match(nickRegex);
+    const matchMotivo = content.match(motivoRegex);
+    const matchTiempo = content.match(tiempoRegex);
+    const matchPruebas = content.match(pruebasRegex);
+
+    if (!matchNick || !matchMotivo || !matchTiempo || !matchPruebas) {
         try {
             if (message.deletable) await message.delete();
-            const warning = await message.channel.send(`Formato incorrecto detectado de parte de ${message.author.username}. Use la estructura obligatoria de la plantilla:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
-            setTimeout(() => warning.delete().catch(() => {}), 5000);
+            
+            const errorEmbed = new EmbedBuilder()
+                .setTitle('Error de Formato')
+                .setDescription(`Estructura incorrecta de parte de ${message.author.username}.\n\nUse la plantilla exacta obligatoria:`)
+                .addFields({ name: 'Plantilla Requerida', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
+                .setColor('#2f3171')
+                .setTimestamp();
+
+            const warning = await message.channel.send({ embeds: [errorEmbed] });
+            setTimeout(() => warning.delete().catch(() => {}), 6000);
         } catch (error) {
             console.error('Format moderation exception:', error);
         }
         return;
     }
 
-    const matches = content.match(format);
-    const nick = matches[1];
-    const motivo = matches[2];
-    const tiempo = matches[3];
-    let pruebas = matches[4];
+    const nick = matchNick[1].trim();
+    const motivo = matchMotivo[1].trim();
+    const tiempo = matchTiempo[1].trim();
+    let pruebas = matchPruebas[1].trim();
 
     if (message.attachments.size > 0) {
         const attachments = message.attachments.map(a => a.url).join('\n');
@@ -179,7 +196,11 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'setup') {
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: 'Permisos insuficientes: Se requiere Administrador.', ephemeral: true });
+            const noPerms = new EmbedBuilder()
+                .setTitle('Acceso Denegado')
+                .setDescription('Permisos insuficientes: Se requiere Administrador.')
+                .setColor('#2f3171');
+            return interaction.reply({ embeds: [noPerms], ephemeral: true });
         }
 
         const tipo = interaction.options.getString('tipo');
@@ -189,7 +210,11 @@ client.on('interactionCreate', async (interaction) => {
         data.channels[canal.id] = tipo;
         saveData(data);
 
-        return interaction.reply({ content: `Configuracion guardada: ${canal} registrado para [${tipo}].`, ephemeral: true });
+        const setupEmbed = new EmbedBuilder()
+            .setTitle('Configuracion Guardada')
+            .setDescription(`El canal ${canal} ha sido registrado para [${tipo}].`)
+            .setColor('#4b306b');
+        return interaction.reply({ embeds: [setupEmbed], ephemeral: true });
     }
 
     await interaction.deferReply().catch(() => {});
@@ -205,15 +230,16 @@ client.on('interactionCreate', async (interaction) => {
             .sort((a, b) => b.total - a.total)
             .slice(0, 10);
 
-        if (ranking.length === 0) {
-            return interaction.editReply({ content: 'No existen registros analiticos almacenados.' });
-        }
-
         const embed = new EmbedBuilder()
             .setTitle('Ranking de Rendimiento - Personal de Staff')
-            .setColor('#3b82f6')
+            .setColor('#2f3171')
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
+
+        if (ranking.length === 0) {
+            embed.setDescription('No existen registros analiticos almacenados en la base de datos actualmente.');
+            return interaction.editReply({ embeds: [embed] });
+        }
 
         let description = '';
         ranking.forEach((user, idx) => {
@@ -231,14 +257,15 @@ client.on('interactionCreate', async (interaction) => {
             .slice(-5)
             .reverse();
 
-        if (userLogs.length === 0) {
-            return interaction.editReply({ content: `El usuario analizado no posee historial en el sistema.` });
-        }
-
         const embed = new EmbedBuilder()
             .setTitle(`Historial de Registros - ${target.username}`)
-            .setColor('#6d28d9')
+            .setColor('#4b306b')
             .setFooter({ text: 'iLoveTungtung_' });
+
+        if (userLogs.length === 0) {
+            embed.setDescription(`El usuario <@${target.id}> no posee historial de actividades en el sistema.`);
+            return interaction.editReply({ embeds: [embed] });
+        }
 
         userLogs.forEach((log, index) => {
             const shortened = log.content.length > 250 ? log.content.substring(0, 250) + '...' : log.content;
@@ -253,4 +280,3 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(CONFIG.TOKEN);
-            
