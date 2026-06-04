@@ -302,4 +302,3 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(CONFIG.TOKEN);
-        
