@@ -118,7 +118,7 @@ client.on('messageCreate', async (message) => {
             const errorEmbed = new EmbedBuilder()
                 .setTitle('⚠️ Formato Incorrecto')
                 .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio:`)
-                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\?' })
+                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
                 .setColor('#2f3171')
                 .setTimestamp();
 
@@ -135,9 +135,11 @@ client.on('messageCreate', async (message) => {
     const tiempo = matchTiempo[1].trim();
     let pruebas = matchPruebas[1].trim();
 
+    // Guardamos los archivos adjuntos directos del mensaje si existen
+    let adjuntosSeparados = [];
     if (message.attachments.size > 0) {
-        const attachments = message.attachments.map(a => a.url).join('\n');
-        pruebas += `\n${attachments}`;
+        adjuntosSeparados = message.attachments.map(a => a.url);
+        pruebas += `\n${adjuntosSeparados.join('\n')}`;
     }
 
     try {
@@ -152,7 +154,6 @@ client.on('messageCreate', async (message) => {
         data.staff[message.author.id][type] += 1;
         const totalSancionesTipo = data.staff[message.author.id][type] || 0;
 
-        // Títulos originales manteniendo tu formato
         const titleMap = {
             baneos: '🏮 BAN REGISTRADO',
             muteos: '🎙️ MUTE REGISTRADO',
@@ -171,7 +172,6 @@ client.on('messageCreate', async (message) => {
             revives: 'Total Revives'
         };
 
-        // Textos de lugar cambiados (Orden modificado para evitar copias)
         const embed = new EmbedBuilder()
             .setTitle(titleMap[type] || 'REGISTRO')
             .setColor(colorMap[type] || '#2b2d31')
@@ -185,6 +185,11 @@ client.on('messageCreate', async (message) => {
             )
             .setTimestamp();
 
+        // Detectar si hay links dentro del texto de Pruebas
+        const linkRegex = /(https?:\/\/[^\s]+)/gi;
+        const linksEncontrados = pruebas.match(linkRegex) || [];
+
+        // Si hay una imagen en el texto, la renderizamos de portada en el embed principal
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
         const imgMatch = pruebas.match(imageRegex);
         if (imgMatch) {
@@ -195,7 +200,21 @@ client.on('messageCreate', async (message) => {
             embed.addFields({ name: 'Evidencias', value: pruebas, inline: false });
         }
 
+        // 1. Enviamos primero la Sanción Estructurada
         await message.channel.send({ embeds: [embed] });
+
+        // 2. Enviamos el mensaje aparte con todas las fotos y links recopilados
+        const todasLasEvidencias = [...linksEncontrados, ...adjuntosSeparados];
+        
+        if (todasLasEvidencias.length > 0) {
+            // Eliminamos duplicados por si acaso
+            const listaLimpia = [...new Set(todasLasEvidencias)];
+            
+            // Enviamos el contenido multimedia fuera del embed de manera limpia
+            await message.channel.send({
+                content: `🖼️ **Archivos y Enlaces de Evidencia adjuntos por ${message.author}:**\n${listaLimpia.join('\n')}`
+            }).catch(() => {});
+        }
 
         data.logs.push({
             user_id: message.author.id,
@@ -254,7 +273,7 @@ client.on('interactionCreate', async (interaction) => {
             .slice(0, 10);
 
         const ahora = new Date();
-        const diaSemana = electromagnetic = ahora.getDay();
+        const diaSemana = ahora.getDay();
         const diferencia = ahora.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
         const lunesActual = new Date(ahora.setDate(diferencia));
         const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
