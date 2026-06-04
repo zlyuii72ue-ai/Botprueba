@@ -9,12 +9,13 @@ http.createServer((req, res) => {
     res.end('System Status: Operational');
 }).listen(process.env.PORT || 3000);
 
+// Captura absoluta de errores para evitar que el proceso de Node se apague
 process.on('uncaughtException', (error) => {
-    console.error('⚠️ [CRITICAL] Exception capturada para evitar crash:', error);
+    console.error('| ANTI-CRASH | Exception evitada:', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('⚠️ [CRITICAL] Rejection no manejada en:', promise, 'razón:', reason);
+    console.error('| ANTI-CRASH | Rejection evitada en:', promise, 'razón:', reason);
 });
 
 const client = new Client({
@@ -90,28 +91,36 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
+    // Protección inicial básica
+    if (!message || !message.author || message.author.bot || !message.guild) return;
 
-    const data = loadData();
-    const type = data.channels?.[message.channel.id];
-    if (!type) return;
+    try {
+        const data = loadData();
+        const type = data.channels?.[message.channel.id];
+        if (!type) return;
 
-    const content = message.content ? message.content.trim() : '';
-    
-    const nickRegex = /^[^\n]*Nick:\s*([^\n]+)/im;
-    const motivoRegex = /^[^\n]*Motivo:\s*([^\n]+)/im;
-    const tiempoRegex = /^[^\n]*Tiempo:\s*([^\n]+)/im;
-    const pruebasRegex = /^[^\n]*Pruebas:\s*([\s\S]+)/im;
+        const content = message.content ? message.content.trim() : '';
+        if (!content) return;
+        
+        // Extracción limpia línea por línea para evitar romper Regex con textos aleatorios
+        const lines = content.split('\n');
+        let nick = '';
+        let motivo = '';
+        let tiempo = '';
+        let pruebasTexto = '';
 
-    const matchNick = content.match(nickRegex);
-    const matchMotivo = content.match(motivoRegex);
-    const matchTiempo = content.match(tiempoRegex);
-    const matchPruebas = content.match(pruebasRegex);
+        lines.forEach(line => {
+            const lowerLine = line.toLowerCase();
+            if (lowerLine.startsWith('nick:')) nick = line.substring(5).trim();
+            else if (lowerLine.startsWith('motivo:')) motivo = line.substring(7).trim();
+            else if (lowerLine.startsWith('tiempo:')) tiempo = line.substring(7).trim();
+            else if (lowerLine.startsWith('pruebas:')) pruebasTexto = line.substring(8).trim();
+        });
 
-    const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
+        const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
 
-    if (!matchNick || !matchMotivo || !matchTiempo) {
-        try {
+        // Validación estricta de los tres datos requeridos
+        if (!nick || !motivo || !tiempo) {
             if (canDelete && message.deletable) {
                 await message.delete().catch(() => {});
             }
@@ -119,51 +128,45 @@ client.on('messageCreate', async (message) => {
             const errorEmbed = new EmbedBuilder()
                 .setTitle('⚠️ Formato Incorrecto')
                 .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio básico:`)
-                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(Opcional puedes agregar Pruebas: o adjuntar una foto)*' })
+                .addFields({ name: 'Campos requeridos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(Opcional puedes agregar Pruebas: o adjuntar una foto)*' })
                 .setColor('#2f3171')
                 .setTimestamp();
 
             const warning = await message.channel.send({ embeds: [errorEmbed] });
             setTimeout(() => warning.delete().catch(() => {}), 6000);
-        } catch (error) {
-            console.error('Format moderation exception:', error);
+            return;
         }
-        return;
-    }
 
-    const nick = matchNick[1] ? matchNick[1].trim() : 'No especificado';
-    const motivo = matchMotivo[1] ? matchMotivo[1].trim() : 'No especificado';
-    const tiempo = matchTiempo[1] ? matchTiempo[1].trim() : 'No especificado';
-    
-    let pruebasTexto = matchPruebas && matchPruebas[1] ? matchPruebas[1].trim() : '';
+        // Buscar enlaces si es que pusieron algo en pruebas
+        let linksEncontrados = [];
+        if (pruebasTexto && pruebasTexto.length > 0) {
+            const linkRegex = /(https?:\/\/[^\s]+)/gi;
+            linksEncontrados = pruebasTexto.match(linkRegex) || [];
+        }
 
-    let linksEncontrados = [];
-    if (pruebasTexto.length > 0) {
-        const linkRegex = /(https?:\/\/[^\s]+)/gi;
-        linksEncontrados = pruebasTexto.match(linkRegex) || [];
-    }
-
-    const imagenesParaEnviar = [];
-
-    if (message.attachments.size > 0) {
-        for (const attachment of message.attachments.values()) {
-            const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url);
-            if (esImagen) {
-                try {
-                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer', timeout: 5000 });
-                    if (response.data) {
-                        const buffer = Buffer.from(response.data, 'binary');
-                        const nombreArchivo = `evidencia_${Date.now()}_${attachment.name || 'archivo.png'}`;
-                        imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
+        // Descarga de archivos adjuntos protegida contra fallos de red
+        const imagenesParaEnviar = [];
+        if (message.attachments && message.attachments.size > 0) {
+            for (const attachment of message.attachments.values()) {
+                if (!attachment || !attachment.url) continue;
+                
+                const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url.split('?')[0]);
+                if (esImagen) {
+                    try {
+                        const response = await axios.get(attachment.url, { responseType: 'arraybuffer', timeout: 6000 }).catch(() => null);
+                        if (response && response.data) {
+                            const buffer = Buffer.from(response.data, 'binary');
+                            const nombreArchivo = `evidencia_${Date.now()}.png`;
+                            imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
+                        }
+                    } catch (err) {
+                        console.error('No se pudo procesar una imagen adjunta:', err.message);
                     }
-                } catch (err) {
-                    console.error('Error al descargar el archivo adjunto de evidencia:', err.message);
                 }
             }
         }
-    }
 
-    try {
+        // Eliminar mensaje original del staff de forma segura
         if (canDelete && message.deletable) {
             await message.delete().catch(() => {});
         }
@@ -206,20 +209,24 @@ client.on('messageCreate', async (message) => {
             )
             .setTimestamp();
 
-        if (pruebasTexto.length > 0) {
+        if (pruebasTexto && pruebasTexto.length > 0) {
             embed.addFields({ name: 'Evidencias', value: pruebasTexto, inline: false });
         }
 
+        // 1. Enviar Embed con los datos limpios
         await message.channel.send({ embeds: [embed] });
 
+        // 2. Enviar Links detectados por separado si existen
         if (linksEncontrados.length > 0) {
             await message.channel.send({ content: linksEncontrados.join('\n') }).catch(() => {});
         }
 
+        // 3. Enviar imágenes descargadas de manera 100% anónima
         if (imagenesParaEnviar.length > 0) {
             await message.channel.send({ files: imagenesParaEnviar }).catch(() => {});
         }
 
+        // Guardar logs internos
         data.logs.push({
             user_id: message.author.id,
             type: type,
@@ -228,110 +235,115 @@ client.on('messageCreate', async (message) => {
         });
 
         saveData(data);
+
     } catch (error) {
-        console.error('Error crítico en el proceso de almacenamiento:', error);
+        console.error('Error controlado en messageCreate para evitar crash:', error);
     }
 });
 
 client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    if (!interaction || !interaction.isChatInputCommand()) return;
 
-    const { commandName } = interaction;
+    try {
+        const { commandName } = interaction;
 
-    if (commandName === 'setup') {
-        if (!interaction.member.permissions.has('Administrator')) {
-            const noPerms = new EmbedBuilder()
-                .setTitle('Acceso Denegado')
-                .setDescription('Permisos insuficientes: Se requiere Administrador.')
-                .setColor('#2f3171');
-            return interaction.reply({ embeds: [noPerms], ephemeral: true });
+        if (commandName === 'setup') {
+            if (!interaction.member.permissions.has('Administrator')) {
+                const noPerms = new EmbedBuilder()
+                    .setTitle('Acceso Denegado')
+                    .setDescription('Permisos insuficientes: Se requiere Administrador.')
+                    .setColor('#2f3171');
+                return interaction.reply({ embeds: [noPerms], ephemeral: true });
+            }
+
+            const tipo = interaction.options.getString('tipo');
+            const canal = interaction.options.getChannel('canal');
+
+            const data = loadData();
+            data.channels = data.channels || {};
+            data.channels[canal.id] = tipo;
+            saveData(data);
+
+            const setupEmbed = new EmbedBuilder()
+                .setTitle('Configuracion Guardada')
+                .setDescription(`El canal ${canal} ha sido registrado para [${tipo}].`)
+                .setColor('#4b306b');
+            return interaction.reply({ embeds: [setupEmbed], ephemeral: true });
         }
 
-        const tipo = interaction.options.getString('tipo');
-        const canal = interaction.options.getChannel('canal');
-
+        await interaction.deferReply().catch(() => {});
         const data = loadData();
-        data.channels = data.channels || {};
-        data.channels[canal.id] = tipo;
-        saveData(data);
 
-        const setupEmbed = new EmbedBuilder()
-            .setTitle('Configuracion Guardada')
-            .setDescription(`El canal ${canal} ha sido registrado para [${tipo}].`)
-            .setColor('#4b306b');
-        return interaction.reply({ embeds: [setupEmbed], ephemeral: true });
-    }
+        if (commandName === 'top') {
+            const staffData = data.staff || {};
+            const ranking = Object.keys(staffData)
+                .map(id => ({
+                    id,
+                    baneos: staffData[id].baneos || 0,
+                    muteos: staffData[id].muteos || 0,
+                    revives: staffData[id].revives || 0,
+                    total: (staffData[id].baneos || 0) + (staffData[id].muteos || 0) + (staffData[id].revives || 0)
+                }))
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 10);
 
-    await interaction.deferReply().catch(() => {});
-    const data = loadData();
+            const ahora = new Date();
+            const diaSemana = ahora.getDay();
+            const diferencia = ahora.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
+            const lunesActual = new Date(ahora.setDate(diferencia));
+            const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
 
-    if (commandName === 'top') {
-        const staffData = data.staff || {};
-        const ranking = Object.keys(staffData)
-            .map(id => ({
-                id,
-                baneos: staffData[id].baneos || 0,
-                muteos: staffData[id].muteos || 0,
-                revives: staffData[id].revives || 0,
-                total: (staffData[id].baneos || 0) + (staffData[id].muteos || 0) + (staffData[id].revives || 0)
-            }))
-            .sort((a, b) => b.total - a.total)
-            .slice(0, 10);
+            const embed = new EmbedBuilder()
+                .setTitle('# Ranking de Rendimiento - Personal de Staff')
+                .setColor('#2f3171')
+                .setTimestamp()
+                .setFooter({ text: 'SirenMc' });
 
-        const ahora = new Date();
-        const diaSemana = ahora.getDay();
-        const diferencia = ahora.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
-        const lunesActual = new Date(ahora.setDate(diferencia));
-        const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
+            if (ranking.length === 0) {
+                embed.setDescription(`📅 Semana: ${fechaFormateada}\n\nNo existen registros analiticos almacenados en la base de datos actualmente.`);
+                return interaction.editReply({ embeds: [embed] });
+            }
 
-        const embed = new EmbedBuilder()
-            .setTitle('# Ranking de Rendimiento - Personal de Staff')
-            .setColor('#2f3171')
-            .setTimestamp()
-            .setFooter({ text: 'SirenMc' });
+            let description = `📅 Semana: ${fechaFormateada}\n\n`;
+            
+            ranking.forEach((user, idx) => {
+                let prefijo = `**${idx + 1}.**`;
+                if (idx === 0) prefijo = '🥇';
+                if (idx === 1) prefijo = '🥈';
+                if (idx === 2) prefijo = '🥉';
 
-        if (ranking.length === 0) {
-            embed.setDescription(`📅 Semana: ${fechaFormateada}\n\nNo existen registros analiticos almacenados en la base de datos actualmente.`);
+                description += `${prefijo} <@${user.id}>: 🔨${user.baneos} | 🔉${user.muteos} | 💚${user.revives} | ⏱️0h 0m 0s\n`;
+            });
+
+            embed.setDescription(description);
             return interaction.editReply({ embeds: [embed] });
         }
 
-        let description = `📅 Semana: ${fechaFormateada}\n\n`;
-        
-        ranking.forEach((user, idx) => {
-            let prefijo = `**${idx + 1}.**`;
-            if (idx === 0) prefijo = '🥇';
-            if (idx === 1) prefijo = '🥈';
-            if (idx === 2) prefijo = '🥉';
+        if (commandName === 'evidencias') {
+            const target = interaction.options.getUser('usuario') || interaction.user;
+            
+            const staffData = data.staff || {};
+            const stats = staffData[target.id] || { baneos: 0, muteos: 0, revives: 0 };
 
-            description += `${prefijo} <@${user.id}>: 🔨${user.baneos} | 🔉${user.muteos} | 💚${user.revives} | ⏱️0h 0m 0s\n`;
-        });
+            const bvals = String(stats.baneos ?? 0);
+            const mvals = String(stats.muteos ?? 0);
+            const rvals = String(stats.revives ?? 0);
 
-        embed.setDescription(description);
-        return interaction.editReply({ embeds: [embed] });
-    }
+            const embed = new EmbedBuilder()
+                .setTitle(`📊 Perfil: ${target.username || 'Desconocido'}`)
+                .setColor('#1d4ed8') 
+                .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
+                .addFields(
+                    { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
+                    { name: '🔨 Bans', value: bvals, inline: false },
+                    { name: '🔉 Mutes', value: mvals, inline: false },
+                    { name: '💚 Revives', value: rvals, inline: false }
+                );
 
-    if (commandName === 'evidencias') {
-        const target = interaction.options.getUser('usuario') || interaction.user;
-        
-        const staffData = data.staff || {};
-        const stats = staffData[target.id] || { baneos: 0, muteos: 0, revives: 0 };
-
-        const bvals = String(stats.baneos ?? 0);
-        const mvals = String(stats.muteos ?? 0);
-        const rvals = String(stats.revives ?? 0);
-
-        const embed = new EmbedBuilder()
-            .setTitle(`📊 Perfil: ${target.username || 'Desconocido'}`)
-            .setColor('#1d4ed8') 
-            .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
-            .addFields(
-                { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
-                { name: '🔨 Bans', value: bvals, inline: false },
-                { name: '🔉 Mutes', value: mvals, inline: false },
-                { name: '💚 Revives', value: rvals, inline: false }
-            );
-
-        return interaction.editReply({ embeds: [embed] });
+            return interaction.editReply({ embeds: [embed] });
+        }
+    } catch (interactionError) {
+        console.error('Error controlado en comando de interacción:', interactionError);
     }
 });
 
