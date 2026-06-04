@@ -3,13 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-// --- SERVIDOR WEB PARA EVITAR QUE RAILWAY APAGUE EL BOT ---
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('iLoveTungtung_ activo en producción');
-}).listen(process.env.PORT || 3000, () => {
-    console.log('Servidor de mantenimiento web iniciado de forma correcta.');
-});
+    res.end('System Status: Online');
+}).listen(process.env.PORT || 3000);
 
 const client = new Client({
     intents: [
@@ -26,46 +23,55 @@ const CONFIG = {
     GUILD_ID: process.env.GUILD_ID
 };
 
-const FILE_PATH = path.join(__dirname, 'database.json');
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR);
+}
+const FILE_PATH = path.join(DATA_DIR, 'storage.json');
 
 function loadData() {
-    if (!fs.existsSync(FILE_PATH)) {
-        const defaultData = { staff_data: {}, logs: [], channels: {} };
-        fs.writeFileSync(FILE_PATH, JSON.stringify(defaultData, null, 2));
-        return defaultData;
-    }
     try {
+        if (!fs.existsSync(FILE_PATH)) {
+            const initial = { staff: {}, logs: [], channels: {} };
+            fs.writeFileSync(FILE_PATH, JSON.stringify(initial, null, 4));
+            return initial;
+        }
         return JSON.parse(fs.readFileSync(FILE_PATH, 'utf-8'));
-    } catch (e) {
-        return { staff_data: {}, logs: [], channels: {} };
+    } catch (error) {
+        console.error('Data loading failure:', error);
+        return { staff: {}, logs: [], channels: {} };
     }
 }
 
 function saveData(data) {
-    fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2));
+    try {
+        fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 4));
+    } catch (error) {
+        console.error('Data saving failure:', error);
+    }
 }
 
 const commands = [
     new SlashCommandBuilder()
         .setName('top')
-        .setDescription('Muestra el ranking de actividad del staff'),
+        .setDescription('Ranking de rendimiento del personal de staff'),
     new SlashCommandBuilder()
         .setName('evidencias')
-        .setDescription('Muestra el historial de registros de un miembro')
-        .addUserOption(option => option.setName('usuario').setDescription('Miembro a consultar').setRequired(false)),
+        .setDescription('Historial de registros de un miembro específico')
+        .addUserOption(option => option.setName('usuario').setDescription('Usuario a consultar').setRequired(false)),
     new SlashCommandBuilder()
         .setName('setup')
-        .setDescription('Configura los canales de registro')
+        .setDescription('Configuracion de canales operativos')
         .addStringOption(option => 
             option.setName('tipo')
-                .setDescription('Tipo de registro')
+                .setDescription('Categoria del canal')
                 .setRequired(true)
                 .addChoices(
                     { name: 'Baneos', value: 'baneos' },
                     { name: 'Muteos', value: 'muteos' },
                     { name: 'Revives', value: 'revives' }
                 ))
-        .addChannelOption(option => option.setName('canal').setDescription('Canal objetivo').setRequired(true))
+        .addChannelOption(option => option.setName('canal').setDescription('Canal de destino').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN);
@@ -74,91 +80,91 @@ const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN);
     try {
         await rest.put(Routes.applicationGuildCommands(CONFIG.CLIENT_ID, CONFIG.GUILD_ID), { body: commands });
     } catch (error) {
-        console.error('Error cargando comandos:', error);
+        console.error('Command registration error:', error);
     }
 })();
 
 client.once('ready', () => {
-    console.log(`Sesión iniciada de forma exitosa: ${client.user.tag}`);
+    console.log(`Authenticated as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     const data = loadData();
-    const activeChannels = data.channels || {};
-    const type = activeChannels[message.channel.id];
-
+    const type = data.channels?.[message.channel.id];
     if (!type) return;
 
-    const rawContent = message.content;
-    const formatCheck = /^Nick:\s*(.+)\nMotivo:\s*(.+)\nTiempo:\s*(.+)\nPruebas:\s*(.+)$/i;
+    const content = message.content;
+    const format = /^Nick:\s*(.+)\nMotivo:\s*(.+)\nTiempo:\s*(.+)\nPruebas:\s*(.+)$/i;
 
-    if (!formatCheck.test(rawContent)) {
+    if (!format.test(content)) {
         try {
-            await message.delete().catch(() => {});
-            const warning = await message.channel.send(`⚠️ **${message.author.username}**, formato incorrecto. Utiliza la estructura obligatoria:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
-            setTimeout(() => warning.delete().catch(() => {}), 6000);
-        } catch (e) {
-            console.error(e);
+            if (message.deletable) await message.delete();
+            const warning = await message.channel.send(`Formato incorrecto detectado de parte de ${message.author.username}. Use la estructura obligatoria de la plantilla:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
+            setTimeout(() => warning.delete().catch(() => {}), 5000);
+        } catch (error) {
+            console.error('Format enforcement error:', error);
         }
         return;
     }
 
-    const matches = rawContent.match(formatCheck);
+    const matches = content.match(format);
     const nick = matches[1];
     const motivo = matches[2];
     const tiempo = matches[3];
     let pruebas = matches[4];
 
     if (message.attachments.size > 0) {
-        const attachmentUrls = message.attachments.map(a => a.url).join('\n');
-        pruebas += `\n${attachmentUrls}`;
+        const attachments = message.attachments.map(a => a.url).join('\n');
+        pruebas += `\n${attachments}`;
     }
 
     try {
-        await message.delete().catch(() => {});
+        if (message.deletable) await message.delete();
 
-        const badge = type === 'baneos' ? '✖️' : type === 'muteos' ? '🔇' : '💗';
-        const color = type === 'baneos' ? '#ff4d4d' : type === 'muteos' ? '#ff9933' : '#ff66b2';
+        const colorMap = {
+            baneos: '#2f3171', // Azul oscuro tirando a morado
+            muteos: '#4b306b', // Morado oscuro
+            revives: '#1d4ed8'  // Azul cobalto
+        };
 
-        const embedRegistro = new EmbedBuilder()
-            .setTitle(`${badge} Nuevo Registro: ${type.toUpperCase()}`)
-            .setColor(color)
+        const embed = new EmbedBuilder()
+            .setTitle(`Registro: ${type.toUpperCase()}`)
+            .setColor(colorMap[type] || '#2b2d31')
             .addFields(
-                { name: '👤 Staff Responsable', value: `<@${message.author.id}>`, inline: false },
-                { name: '🆔 Nick del Usuario', value: `\`${nick}\``, inline: true },
-                { name: '⏳ Tiempo / Duración', value: `\`${tiempo}\``, inline: true },
-                { name: '📝 Motivo', value: motivo, inline: false },
-                { name: '🔗 Evidencias / Pruebas', value: pruebas, inline: false }
+                { name: 'Personal Responsable', value: `${message.author} (${message.author.id})`, inline: false },
+                { name: 'Nick de Usuario', value: `\`${nick}\``, inline: true },
+                { name: 'Duracion', value: `\`${tiempo}\``, inline: true },
+                { name: 'Motivo', value: motivo, inline: false },
+                { name: 'Evidencias', value: pruebas, inline: false }
             )
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
 
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
-        const hasImage = pruebas.match(imageRegex);
-        if (hasImage) {
-            embedRegistro.setImage(hasImage[1]);
+        const imgMatch = pruebas.match(imageRegex);
+        if (imgMatch) {
+            embed.setImage(imgMatch[1]);
         }
 
-        await message.channel.send({ embeds: [embedRegistro] });
+        await message.channel.send({ embeds: [embed] });
 
-        if (!data.staff_data[message.author.id]) {
-            data.staff_data[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+        if (!data.staff[message.author.id]) {
+            data.staff[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
         }
 
-        data.staff_data[message.author.id][type] += 1;
-
+        data.staff[message.author.id][type] += 1;
         data.logs.push({
             user_id: message.author.id,
             type: type,
             content: `Nick: ${nick}\nMotivo: ${motivo}\nTiempo: ${tiempo}\nPruebas: ${pruebas}`,
-            created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+            date: new Date().toISOString().replace('T', ' ').substring(0, 19)
         });
 
         saveData(data);
-    } catch (err) {
-        console.error('Error procesando registro:', err);
+    } catch (error) {
+        console.error('Log creation error:', error);
     }
 });
 
@@ -169,9 +175,9 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'setup') {
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: 'Acceso denegado: Se requieren permisos de Administrador.', ephemeral: true });
+            return interaction.reply({ content: 'Permisos insuficientes: Se requiere Administrador.', ephemeral: true });
         }
-        
+
         const tipo = interaction.options.getString('tipo');
         const canal = interaction.options.getChannel('canal');
 
@@ -179,38 +185,38 @@ client.on('interactionCreate', async (interaction) => {
         data.channels[canal.id] = tipo;
         saveData(data);
 
-        return interaction.reply({ content: `Canal para **${tipo}** asignado correctamente en ${canal}.`, ephemeral: true });
+        return interaction.reply({ content: `Configuracion guardada: ${canal} registrado para [${tipo}].`, ephemeral: true });
     }
 
     await interaction.deferReply().catch(() => {});
     const data = loadData();
 
     if (commandName === 'top') {
-        const sortedStaff = Object.keys(data.staff_data)
+        const ranking = Object.keys(data.staff)
             .map(id => ({
                 id,
-                ...data.staff_data[id],
-                total: (data.staff_data[id].baneos || 0) + (data.staff_data[id].muteos || 0) + (data.staff_data[id].revives || 0)
+                ...data.staff[id],
+                total: (data.staff[id].baneos || 0) + (data.staff[id].muteos || 0) + (data.staff[id].revives || 0)
             }))
             .sort((a, b) => b.total - a.total)
             .slice(0, 10);
 
-        if (sortedStaff.length === 0) {
-            return interaction.editReply({ content: 'No se encontraron registros en el sistema.' });
+        if (ranking.length === 0) {
+            return interaction.editReply({ content: 'No existen registros analiticos almacenados.' });
         }
 
         const embed = new EmbedBuilder()
-            .setTitle('🏆 TOP 10 ACTIVIDAD STAFF 🏆')
-            .setColor('#D4AF37')
+            .setTitle('Ranking de Rendimiento - Personal de Staff')
+            .setColor('#3b82f6') // Azul
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
 
-        let list = '';
-        sortedStaff.forEach((row, i) => {
-            list += `**#${i + 1}** <@${row.id}> — Total: \`${row.total}\`\n✖️ \`${row.baneos}\` | 🔇 \`${row.muteos}\` | 💗 \`${row.revives}\`\n\n`;
+        let description = '';
+        ranking.forEach((user, idx) => {
+            description += `**[#${idx + 1}]** <@${user.id}>\nTotal: \`${user.total}\` | Baneos: \`${user.baneos}\` | Muteos: \`${user.muteos}\` | Revives: \`${user.revives}\`\n\n`;
         });
 
-        embed.setDescription(list);
+        embed.setDescription(description);
         return interaction.editReply({ embeds: [embed] });
     }
 
@@ -222,21 +228,19 @@ client.on('interactionCreate', async (interaction) => {
             .reverse();
 
         if (userLogs.length === 0) {
-            return interaction.editReply({ content: `El usuario <@${target.id}> no registra evidencias.` });
+            return interaction.editReply({ content: `El usuario analizado no posee historial en el sistema.` });
         }
 
         const embed = new EmbedBuilder()
-            .setTitle(`Registros Recientes — ${target.username}`)
-            .setColor('#2B2D31')
+            .setTitle(`Historial de Registros - ${target.username}`)
+            .setColor('#6d28d9') // Morado
             .setFooter({ text: 'iLoveTungtung_' });
 
-        userLogs.forEach((row, index) => {
-            const badge = row.type === 'baneos' ? '✖️' : row.type === 'muteos' ? '🔇' : '💗';
-            const trimmedText = row.content.length > 250 ? row.content.substring(0, 250) + '...' : row.content;
-            
+        userLogs.forEach((log, index) => {
+            const shortened = log.content.length > 250 ? log.content.substring(0, 250) + '...' : log.content;
             embed.addFields({
-                name: `[${index + 1}] Acción: ${badge} ${row.type.toUpperCase()}`,
-                value: `\`\`\`\n${trimmedText}\n\`\`\`*Fecha: ${row.created_at}*`
+                name: `[${index + 1}] Tipo: ${log.type.toUpperCase()} | ${log.date}`,
+                value: `\`\`\`\n${shortened}\n\`\`\``
             });
         });
 
