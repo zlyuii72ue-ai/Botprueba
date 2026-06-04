@@ -111,14 +111,19 @@ client.on('messageCreate', async (message) => {
     const matchTiempo = content.match(tiempoRegex);
     const matchPruebas = content.match(pruebasRegex);
 
+    // Verificar de forma segura si el bot puede borrar el mensaje original
+    const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
+
     if (!matchNick || !matchMotivo || !matchTiempo || !matchPruebas) {
         try {
-            if (message.deletable) await message.delete();
+            if (canDelete && message.deletable) {
+                await message.delete().catch(() => {});
+            }
             
             const errorEmbed = new EmbedBuilder()
                 .setTitle('Error de Formato')
                 .setDescription(`Estructura incorrecta de parte de ${message.author.username}.\n\nUse la plantilla exacta obligatoria:`)
-                .addFields({ name: 'Plantilla Requerida', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`` })
+                .addFields({ name: 'Plantilla Requerida', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
                 .setColor('#2f3171')
                 .setTimestamp();
 
@@ -141,7 +146,9 @@ client.on('messageCreate', async (message) => {
     }
 
     try {
-        if (message.deletable) await message.delete();
+        if (canDelete && message.deletable) {
+            await message.delete().catch(() => {});
+        }
 
         if (!data.staff[message.author.id]) {
             data.staff[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
@@ -284,7 +291,6 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'evidencias') {
         const target = interaction.options.getUser('usuario') || interaction.user;
         
-        // Evita errores de lectura si el usuario no tiene registros previos asignados
         const staffData = data.staff || {};
         const stats = staffData[target.id] || { baneos: 0, muteos: 0, revives: 0 };
 
