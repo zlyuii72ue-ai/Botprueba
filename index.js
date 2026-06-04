@@ -5,8 +5,16 @@ const http = require('http');
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('System Status: Online');
+    res.end('System Status: Operational');
 }).listen(process.env.PORT || 3000);
+
+process.on('uncaughtException', (error) => {
+    console.error('Captured Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 const client = new Client({
     intents: [
@@ -19,8 +27,7 @@ const client = new Client({
 
 const CONFIG = {
     TOKEN: process.env.DISCORD_TOKEN,
-    CLIENT_ID: process.env.CLIENT_ID,
-    GUILD_ID: process.env.GUILD_ID
+    CLIENT_ID: process.env.CLIENT_ID
 };
 
 const DATA_DIR = path.join(__dirname, 'data');
@@ -38,7 +45,6 @@ function loadData() {
         }
         return JSON.parse(fs.readFileSync(FILE_PATH, 'utf-8'));
     } catch (error) {
-        console.error('Data loading failure:', error);
         return { staff: {}, logs: [], channels: {} };
     }
 }
@@ -47,7 +53,7 @@ function saveData(data) {
     try {
         fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 4));
     } catch (error) {
-        console.error('Data saving failure:', error);
+        console.error('Storage update failure:', error);
     }
 }
 
@@ -57,7 +63,7 @@ const commands = [
         .setDescription('Ranking de rendimiento del personal de staff'),
     new SlashCommandBuilder()
         .setName('evidencias')
-        .setDescription('Historial de registros de un miembro específico')
+        .setDescription('Historial de registros de un miembro especifico')
         .addUserOption(option => option.setName('usuario').setDescription('Usuario a consultar').setRequired(false)),
     new SlashCommandBuilder()
         .setName('setup')
@@ -76,16 +82,14 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN);
 
-(async () => {
-    try {
-        await rest.put(Routes.applicationGuildCommands(CONFIG.CLIENT_ID, CONFIG.GUILD_ID), { body: commands });
-    } catch (error) {
-        console.error('Command registration error:', error);
-    }
-})();
-
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`Authenticated as ${client.user.tag}`);
+    try {
+        await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
+        console.log('Global application commands successfully synchronized.');
+    } catch (error) {
+        console.error('Command synchronization deployment failure:', error);
+    }
 });
 
 client.on('messageCreate', async (message) => {
@@ -104,7 +108,7 @@ client.on('messageCreate', async (message) => {
             const warning = await message.channel.send(`Formato incorrecto detectado de parte de ${message.author.username}. Use la estructura obligatoria de la plantilla:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
             setTimeout(() => warning.delete().catch(() => {}), 5000);
         } catch (error) {
-            console.error('Format enforcement error:', error);
+            console.error('Format moderation exception:', error);
         }
         return;
     }
@@ -124,9 +128,9 @@ client.on('messageCreate', async (message) => {
         if (message.deletable) await message.delete();
 
         const colorMap = {
-            baneos: '#2f3171', // Azul oscuro tirando a morado
-            muteos: '#4b306b', // Morado oscuro
-            revives: '#1d4ed8'  // Azul cobalto
+            baneos: '#2f3171',
+            muteos: '#4b306b',
+            revives: '#1d4ed8'
         };
 
         const embed = new EmbedBuilder()
@@ -164,7 +168,7 @@ client.on('messageCreate', async (message) => {
 
         saveData(data);
     } catch (error) {
-        console.error('Log creation error:', error);
+        console.error('Data logging process failure:', error);
     }
 });
 
@@ -207,7 +211,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = new EmbedBuilder()
             .setTitle('Ranking de Rendimiento - Personal de Staff')
-            .setColor('#3b82f6') // Azul
+            .setColor('#3b82f6')
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
 
@@ -233,7 +237,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = new EmbedBuilder()
             .setTitle(`Historial de Registros - ${target.username}`)
-            .setColor('#6d28d9') // Morado
+            .setColor('#6d28d9')
             .setFooter({ text: 'iLoveTungtung_' });
 
         userLogs.forEach((log, index) => {
@@ -249,3 +253,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(CONFIG.TOKEN);
+            
