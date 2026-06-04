@@ -2,20 +2,20 @@ const { Client, GatewayIntentBits, Partials, EmbedBuilder, SlashCommandBuilder, 
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const axios = require('axios');
 
+// Servidor web para mantener vivo el bot en Railway / Render
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('System Status: Operational');
 }).listen(process.env.PORT || 3000);
 
-// Captura absoluta de errores para evitar que el proceso de Node se apague
+// Capturas de emergencia globales absolutas para evitar que Node se apague bajo cualquier circunstancia
 process.on('uncaughtException', (error) => {
-    console.error('| ANTI-CRASH | Exception evitada:', error);
+    console.error('| ANTI-CRASH | Bloqueada una excepción no capturada:', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('| ANTI-CRASH | Rejection evitada en:', promise, 'razón:', reason);
+    console.error('| ANTI-CRASH | Bloqueada una promesa rechazada en:', promise, 'razón:', reason);
 });
 
 const client = new Client({
@@ -91,7 +91,7 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    // Protección inicial básica
+    // Validación inicial ultra segura
     if (!message || !message.author || message.author.bot || !message.guild) return;
 
     try {
@@ -100,9 +100,8 @@ client.on('messageCreate', async (message) => {
         if (!type) return;
 
         const content = message.content ? message.content.trim() : '';
-        if (!content) return;
         
-        // Extracción limpia línea por línea para evitar romper Regex con textos aleatorios
+        // Procesar línea por línea para extraer valores de forma limpia sin importar el orden
         const lines = content.split('\n');
         let nick = '';
         let motivo = '';
@@ -119,7 +118,7 @@ client.on('messageCreate', async (message) => {
 
         const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
 
-        // Validación estricta de los tres datos requeridos
+        // Los únicos campos estrictamente obligatorios para armar la base de datos
         if (!nick || !motivo || !tiempo) {
             if (canDelete && message.deletable) {
                 await message.delete().catch(() => {});
@@ -128,7 +127,7 @@ client.on('messageCreate', async (message) => {
             const errorEmbed = new EmbedBuilder()
                 .setTitle('⚠️ Formato Incorrecto')
                 .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio básico:`)
-                .addFields({ name: 'Campos requeridos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(Opcional puedes agregar Pruebas: o adjuntar una foto)*' })
+                .addFields({ name: 'Campos requeridos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(El campo Pruebas: o adjuntar imágenes ahora es totalmente opcional)*' })
                 .setColor('#2f3171')
                 .setTimestamp();
 
@@ -137,36 +136,29 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // Buscar enlaces si es que pusieron algo en pruebas
+        // Buscar enlaces URL independientes dentro de lo que hayan escrito en pruebas
         let linksEncontrados = [];
         if (pruebasTexto && pruebasTexto.length > 0) {
             const linkRegex = /(https?:\/\/[^\s]+)/gi;
             linksEncontrados = pruebasTexto.match(linkRegex) || [];
         }
 
-        // Descarga de archivos adjuntos protegida contra fallos de red
+        // Manejo nativo de imágenes sin usar librerías externas (Evita bloqueos y errores de descarga)
         const imagenesParaEnviar = [];
         if (message.attachments && message.attachments.size > 0) {
-            for (const attachment of message.attachments.values()) {
-                if (!attachment || !attachment.url) continue;
-                
-                const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url.split('?')[0]);
-                if (esImagen) {
-                    try {
-                        const response = await axios.get(attachment.url, { responseType: 'arraybuffer', timeout: 6000 }).catch(() => null);
-                        if (response && response.data) {
-                            const buffer = Buffer.from(response.data, 'binary');
-                            const nombreArchivo = `evidencia_${Date.now()}.png`;
-                            imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
-                        }
-                    } catch (err) {
-                        console.error('No se pudo procesar una imagen adjunta:', err.message);
+            message.attachments.forEach(attachment => {
+                if (attachment && attachment.url) {
+                    const urlLimpia = attachment.url.split('?')[0];
+                    const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(urlLimpia);
+                    if (esImagen) {
+                        // Pasamos directamente la URL. Discord.js se encarga de retransmitirla de forma anónima
+                        imagenesParaEnviar.push(new AttachmentBuilder(attachment.url, { name: attachment.name || 'evidencia.png' }));
                     }
                 }
-            }
+            });
         }
 
-        // Eliminar mensaje original del staff de forma segura
+        // Borrar el mensaje del moderador inmediatamente
         if (canDelete && message.deletable) {
             await message.delete().catch(() => {});
         }
@@ -213,20 +205,20 @@ client.on('messageCreate', async (message) => {
             embed.addFields({ name: 'Evidencias', value: pruebasTexto, inline: false });
         }
 
-        // 1. Enviar Embed con los datos limpios
+        // 1. Enviar el embed con la información del reporte estructurado
         await message.channel.send({ embeds: [embed] });
 
-        // 2. Enviar Links detectados por separado si existen
+        // 2. Enviar los enlaces encontrados en un mensaje independiente
         if (linksEncontrados.length > 0) {
             await message.channel.send({ content: linksEncontrados.join('\n') }).catch(() => {});
         }
 
-        // 3. Enviar imágenes descargadas de manera 100% anónima
+        // 3. Enviar los archivos adjuntos de forma anónima desde el bot
         if (imagenesParaEnviar.length > 0) {
             await message.channel.send({ files: imagenesParaEnviar }).catch(() => {});
         }
 
-        // Guardar logs internos
+        // Guardar logs persistentes en el disco temporal
         data.logs.push({
             user_id: message.author.id,
             type: type,
@@ -237,7 +229,7 @@ client.on('messageCreate', async (message) => {
         saveData(data);
 
     } catch (error) {
-        console.error('Error controlado en messageCreate para evitar crash:', error);
+        console.error('Error controlado en el evento messageCreate:', error);
     }
 });
 
