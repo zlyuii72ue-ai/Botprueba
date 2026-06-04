@@ -181,14 +181,12 @@ client.on('messageCreate', async (message) => {
             )
             .setTimestamp();
 
-        // Si se incluyen links de imágenes en la sección Pruebas, se renderizan en el embed
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
         const imgMatch = pruebas.match(imageRegex);
         if (imgMatch) {
             embed.setImage(imgMatch[1]);
         }
 
-        // Si hay texto adicional, enlaces o evidencias, se anexan al final de forma limpia
         if (pruebas.length > 0) {
             embed.addFields({ name: 'Evidencias', value: pruebas, inline: false });
         }
@@ -258,7 +256,7 @@ client.on('interactionCreate', async (interaction) => {
         const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
 
         const embed = new EmbedBuilder()
-            .setTitle('Ranking de Rendimiento - Personal de Staff')
+            .setTitle('# Ranking de Rendimiento - Personal de Staff')
             .setColor('#2f3171')
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
@@ -285,32 +283,23 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'evidencias') {
         const target = interaction.options.getUser('usuario') || interaction.user;
-        const userLogs = data.logs
-            .filter(log => log.user_id === target.id)
-            .slice(-5)
-            .reverse();
+        const stats = data.staff[target.id] || { baneos: 0, muteos: 0, revives: 0 };
 
+        // Ajuste de interfaz idéntica a la maqueta de 1000032757.png
         const embed = new EmbedBuilder()
-            .setTitle(`Historial de Registros - ${target.username}`)
-            .setColor('#4b306b')
-            .setFooter({ text: 'iLoveTungtung_' });
-
-        if (userLogs.length === 0) {
-            embed.setDescription(`El usuario <@${target.id}> no posee historial de actividades en el sistema.`);
-            return interaction.editReply({ embeds: [embed] });
-        }
-
-        userLogs.forEach((log, index) => {
-            const shortened = log.content.length > 250 ? log.content.substring(0, 250) + '...' : log.content;
-            embed.addFields({
-                name: `[${index + 1}] Tipo: ${log.type.toUpperCase()} | ${log.date}`,
-                value: `\`\`\`\n${shortened}\n\`\`\``
-            });
-        });
+            .setTitle(`📊 Perfil: ${target.username}`)
+            .setColor('#1d4ed8') 
+            .setThumbnail(target.displayAvatarURL({ dynamic: true }))
+            .addFields(
+                { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
+                { name: '🔨 Bans', value: String(stats.baneos), inline: false },
+                { name: '🔉 Mutes', value: String(stats.muteos), inline: false },
+                { name: '💚 Revives', value: String(stats.revives), inline: false }
+            );
 
         return interaction.editReply({ embeds: [embed] });
     }
 });
 
 client.login(CONFIG.TOKEN);
-            
+        
