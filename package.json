@@ -1,7 +1,7 @@
 {
   "name": "ilovetungtung",
   "version": "1.0.0",
-  "description": "",
+  "description": "Production logging system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
