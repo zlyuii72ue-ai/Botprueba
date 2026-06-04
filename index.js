@@ -3,19 +3,19 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-// Servidor web para mantener vivo el bot en Railway / Render
+// Servidor web para mantener vivo el bot en tu hosting
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('System Status: Operational');
 }).listen(process.env.PORT || 3000);
 
-// Capturas de emergencia globales absolutas para evitar que Node se apague bajo cualquier circunstancia
+// Capturas de emergencia globales absolutas para evitar caídas
 process.on('uncaughtException', (error) => {
-    console.error('| ANTI-CRASH | Bloqueada una excepción no capturada:', error);
+    console.error('| ANTI-CRASH | Exception evitada:', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('| ANTI-CRASH | Bloqueada una promesa rechazada en:', promise, 'razón:', reason);
+    console.error('| ANTI-CRASH | Rejection evitada en:', promise, 'razón:', reason);
 });
 
 const client = new Client({
@@ -91,7 +91,6 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    // Validación inicial ultra segura
     if (!message || !message.author || message.author.bot || !message.guild) return;
 
     try {
@@ -101,7 +100,7 @@ client.on('messageCreate', async (message) => {
 
         const content = message.content ? message.content.trim() : '';
         
-        // Procesar línea por línea para extraer valores de forma limpia sin importar el orden
+        // Extracción modular línea por línea
         const lines = content.split('\n');
         let nick = '';
         let motivo = '';
@@ -118,7 +117,7 @@ client.on('messageCreate', async (message) => {
 
         const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
 
-        // Los únicos campos estrictamente obligatorios para armar la base de datos
+        // Validación de campos requeridos obligatorios
         if (!nick || !motivo || !tiempo) {
             if (canDelete && message.deletable) {
                 await message.delete().catch(() => {});
@@ -127,8 +126,8 @@ client.on('messageCreate', async (message) => {
             const errorEmbed = new EmbedBuilder()
                 .setTitle('⚠️ Formato Incorrecto')
                 .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio básico:`)
-                .addFields({ name: 'Campos requeridos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(El campo Pruebas: o adjuntar imágenes ahora es totalmente opcional)*' })
-                .setColor('#2f3171')
+                .addFields({ name: 'Campos requeridos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(El campo Pruebas: o adjuntar fotos es opcional)*' })
+                .setColor('#6a1b9a') // Tono morado para errores de formato
                 .setTimestamp();
 
             const warning = await message.channel.send({ embeds: [errorEmbed] });
@@ -136,14 +135,14 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // Buscar enlaces URL independientes dentro de lo que hayan escrito en pruebas
+        // Buscar enlaces URL independientes en el texto de Pruebas:
         let linksEncontrados = [];
         if (pruebasTexto && pruebasTexto.length > 0) {
             const linkRegex = /(https?:\/\/[^\s]+)/gi;
             linksEncontrados = pruebasTexto.match(linkRegex) || [];
         }
 
-        // Manejo nativo de imágenes sin usar librerías externas (Evita bloqueos y errores de descarga)
+        // Preparar las imágenes adjuntas antes de eliminar el mensaje de origen
         const imagenesParaEnviar = [];
         if (message.attachments && message.attachments.size > 0) {
             message.attachments.forEach(attachment => {
@@ -151,16 +150,10 @@ client.on('messageCreate', async (message) => {
                     const urlLimpia = attachment.url.split('?')[0];
                     const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(urlLimpia);
                     if (esImagen) {
-                        // Pasamos directamente la URL. Discord.js se encarga de retransmitirla de forma anónima
                         imagenesParaEnviar.push(new AttachmentBuilder(attachment.url, { name: attachment.name || 'evidencia.png' }));
                     }
                 }
             });
-        }
-
-        // Borrar el mensaje del moderador inmediatamente
-        if (canDelete && message.deletable) {
-            await message.delete().catch(() => {});
         }
 
         if (!data.staff[message.author.id]) {
@@ -176,10 +169,11 @@ client.on('messageCreate', async (message) => {
             revives: '💫 REVIVE REGISTRADO'
         };
 
+        // Paleta de colores configurada en tonos medios morados
         const colorMap = {
-            baneos: '#2f3171',
-            muteos: '#4b306b',
-            revives: '#1d4ed8'
+            baneos: '#6a1b9a', // Morado oscuro/medio
+            muteos: '#7b1fa2', // Morado intermedio
+            revives: '#8e24aa' // Morado claro brillante
         };
 
         const fieldTotalMap = {
@@ -190,7 +184,7 @@ client.on('messageCreate', async (message) => {
 
         const embed = new EmbedBuilder()
             .setTitle(titleMap[type] || 'REGISTRO')
-            .setColor(colorMap[type] || '#2b2d31')
+            .setColor(colorMap[type] || '#7b1fa2')
             .setThumbnail(message.author.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
                 { name: 'Nick Sancionado', value: nick, inline: false },
@@ -205,20 +199,25 @@ client.on('messageCreate', async (message) => {
             embed.addFields({ name: 'Evidencias', value: pruebasTexto, inline: false });
         }
 
-        // 1. Enviar el embed con la información del reporte estructurado
+        // 1. Enviamos el embed estructurado primero
         await message.channel.send({ embeds: [embed] });
 
-        // 2. Enviar los enlaces encontrados en un mensaje independiente
+        // 2. Enviamos los links de texto si se añadieron en Pruebas:
         if (linksEncontrados.length > 0) {
             await message.channel.send({ content: linksEncontrados.join('\n') }).catch(() => {});
         }
 
-        // 3. Enviar los archivos adjuntos de forma anónima desde el bot
+        // 3. Enviamos los archivos multimedia de forma 100% anónima
         if (imagenesParaEnviar.length > 0) {
             await message.channel.send({ files: imagenesParaEnviar }).catch(() => {});
         }
 
-        // Guardar logs persistentes en el disco temporal
+        // 4. Borramos el mensaje original una vez que Discord ya procesó y duplicó las imágenes
+        if (canDelete && message.deletable) {
+            await message.delete().catch(() => {});
+        }
+
+        // Almacenar en logs internos
         data.logs.push({
             user_id: message.author.id,
             type: type,
@@ -244,7 +243,7 @@ client.on('interactionCreate', async (interaction) => {
                 const noPerms = new EmbedBuilder()
                     .setTitle('Acceso Denegado')
                     .setDescription('Permisos insuficientes: Se requiere Administrador.')
-                    .setColor('#2f3171');
+                    .setColor('#6a1b9a');
                 return interaction.reply({ embeds: [noPerms], ephemeral: true });
             }
 
@@ -259,7 +258,7 @@ client.on('interactionCreate', async (interaction) => {
             const setupEmbed = new EmbedBuilder()
                 .setTitle('Configuracion Guardada')
                 .setDescription(`El canal ${canal} ha sido registrado para [${tipo}].`)
-                .setColor('#4b306b');
+                .setColor('#7b1fa2');
             return interaction.reply({ embeds: [setupEmbed], ephemeral: true });
         }
 
@@ -287,7 +286,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const embed = new EmbedBuilder()
                 .setTitle('# Ranking de Rendimiento - Personal de Staff')
-                .setColor('#2f3171')
+                .setColor('#6a1b9a')
                 .setTimestamp()
                 .setFooter({ text: 'SirenMc' });
 
@@ -323,7 +322,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const embed = new EmbedBuilder()
                 .setTitle(`📊 Perfil: ${target.username || 'Desconocido'}`)
-                .setColor('#1d4ed8') 
+                .setColor('#8e24aa') 
                 .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
                 .addFields(
                     { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
