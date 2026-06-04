@@ -10,11 +10,11 @@ http.createServer((req, res) => {
 }).listen(process.env.PORT || 3000);
 
 process.on('uncaughtException', (error) => {
-    console.error('Captured Exception:', error);
+    console.error('⚠️ [CRITICAL] Exception capturada para evitar crash:', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error('⚠️ [CRITICAL] Rejection no manejada en:', promise, 'razón:', reason);
 });
 
 const client = new Client({
@@ -90,15 +90,14 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+    if (message.author.bot || !message.guild) return;
 
     const data = loadData();
     const type = data.channels?.[message.channel.id];
     if (!type) return;
 
-    const content = message.content.trim();
+    const content = message.content ? message.content.trim() : '';
     
-    // Regex actualizadas: Pruebas ya no es obligatorio ni se busca estrictamente
     const nickRegex = /^[^\n]*Nick:\s*([^\n]+)/im;
     const motivoRegex = /^[^\n]*Motivo:\s*([^\n]+)/im;
     const tiempoRegex = /^[^\n]*Tiempo:\s*([^\n]+)/im;
@@ -111,7 +110,6 @@ client.on('messageCreate', async (message) => {
 
     const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
 
-    // Solo Nick, Motivo y Tiempo son obligatorios obligatoriamente
     if (!matchNick || !matchMotivo || !matchTiempo) {
         try {
             if (canDelete && message.deletable) {
@@ -133,43 +131,39 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    const nick = matchNick[1].trim();
-    const motivo = matchMotivo[1].trim();
-    const tiempo = matchTiempo[1].trim();
+    const nick = matchNick[1] ? matchNick[1].trim() : 'No especificado';
+    const motivo = matchMotivo[1] ? matchMotivo[1].trim() : 'No especificado';
+    const tiempo = matchTiempo[1] ? matchTiempo[1].trim() : 'No especificado';
     
-    // Si escribió el campo Pruebas lo extrae, si no, queda vacío
-    let pruebasTexto = matchPruebas ? matchPruebas[1].trim() : '';
+    let pruebasTexto = matchPruebas && matchPruebas[1] ? matchPruebas[1].trim() : '';
 
-    // Guardar enlaces detectados en el texto
     let linksEncontrados = [];
     if (pruebasTexto.length > 0) {
         const linkRegex = /(https?:\/\/[^\s]+)/gi;
         linksEncontrados = pruebasTexto.match(linkRegex) || [];
     }
 
-    // Almacén para buffers de imágenes descargadas
     const imagenesParaEnviar = [];
 
-    // Descargar archivos adjuntos directos del mensaje de forma anónima
     if (message.attachments.size > 0) {
         for (const attachment of message.attachments.values()) {
-            // Verificar si el archivo adjunto es una imagen
-            if (attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url)) {
+            const esImagen = attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url);
+            if (esImagen) {
                 try {
-                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
-                    const buffer = Buffer.from(response.data, 'binary');
-                    const nombreArchivo = `evidencia_${Date.now()}_${attachment.name}`;
-                    
-                    imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
+                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer', timeout: 5000 });
+                    if (response.data) {
+                        const buffer = Buffer.from(response.data, 'binary');
+                        const nombreArchivo = `evidencia_${Date.now()}_${attachment.name || 'archivo.png'}`;
+                        imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
+                    }
                 } catch (err) {
-                    console.error('Error descargando adjunto:', err);
+                    console.error('Error al descargar el archivo adjunto de evidencia:', err.message);
                 }
             }
         }
     }
 
     try {
-        // Borramos inmediatamente el mensaje del Staff para no dejar rastro
         if (canDelete && message.deletable) {
             await message.delete().catch(() => {});
         }
@@ -178,8 +172,8 @@ client.on('messageCreate', async (message) => {
             data.staff[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
         }
 
-        data.staff[message.author.id][type] += 1;
-        const totalSancionesTipo = data.staff[message.author.id][type] || 0;
+        data.staff[message.author.id][type] = (data.staff[message.author.id][type] || 0) + 1;
+        const totalSancionesTipo = data.staff[message.author.id][type];
 
         const titleMap = {
             baneos: '🏮 BAN REGISTRADO',
@@ -204,34 +198,26 @@ client.on('messageCreate', async (message) => {
             .setColor(colorMap[type] || '#2b2d31')
             .setThumbnail(message.author.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
-                { name: 'Nick Sancionado', value: nick || 'No especificado', inline: false },
-                { name: 'Motivo', value: motivo || 'No especificado', inline: false },
-                { name: 'Duracion', value: tiempo || 'No especificado', inline: false },
+                { name: 'Nick Sancionado', value: nick, inline: false },
+                { name: 'Motivo', value: motivo, inline: false },
+                { name: 'Duracion', value: tiempo, inline: false },
                 { name: 'Staff', value: `${message.author}`, inline: false },
                 { name: fieldTotalMap[type] || 'Total', value: String(totalSancionesTipo), inline: false }
             )
             .setTimestamp();
 
-        // Si se extrajo texto en pruebas que no sean puros links, se añade al embed
         if (pruebasTexto.length > 0) {
             embed.addFields({ name: 'Evidencias', value: pruebasTexto, inline: false });
         }
 
-        // 1. Enviar el embed de la sanción estructural
         await message.channel.send({ embeds: [embed] });
 
-        // 2. Enviar los links de texto si existían (sin decir quién los mandó)
         if (linksEncontrados.length > 0) {
-            await message.channel.send({
-                content: `${linksEncontrados.join('\n')}`
-            }).catch(() => {});
+            await message.channel.send({ content: linksEncontrados.join('\n') }).catch(() => {});
         }
 
-        // 3. Enviar las imágenes descargadas de forma limpia (Mensaje propio del bot, 100% anónimo)
         if (imagenesParaEnviar.length > 0) {
-            await message.channel.send({
-                files: imagenesParaEnviar
-            }).catch(() => {});
+            await message.channel.send({ files: imagenesParaEnviar }).catch(() => {});
         }
 
         data.logs.push({
@@ -243,7 +229,7 @@ client.on('messageCreate', async (message) => {
 
         saveData(data);
     } catch (error) {
-        console.error('Data logging process failure:', error);
+        console.error('Error crítico en el proceso de almacenamiento:', error);
     }
 });
 
@@ -265,6 +251,7 @@ client.on('interactionCreate', async (interaction) => {
         const canal = interaction.options.getChannel('canal');
 
         const data = loadData();
+        data.channels = data.channels || {};
         data.channels[canal.id] = tipo;
         saveData(data);
 
@@ -279,13 +266,14 @@ client.on('interactionCreate', async (interaction) => {
     const data = loadData();
 
     if (commandName === 'top') {
-        const ranking = Object.keys(data.staff)
+        const staffData = data.staff || {};
+        const ranking = Object.keys(staffData)
             .map(id => ({
                 id,
-                baneos: data.staff[id].baneos || 0,
-                muteos: data.staff[id].muteos || 0,
-                revives: data.staff[id].revives || 0,
-                total: (data.staff[id].baneos || 0) + (data.staff[id].muteos || 0) + (data.staff[id].revives || 0)
+                baneos: staffData[id].baneos || 0,
+                muteos: staffData[id].muteos || 0,
+                revives: staffData[id].revives || 0,
+                total: (staffData[id].baneos || 0) + (staffData[id].muteos || 0) + (staffData[id].revives || 0)
             }))
             .sort((a, b) => b.total - a.total)
             .slice(0, 10);
