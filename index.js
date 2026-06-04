@@ -88,36 +88,77 @@ client.on('messageCreate', async (message) => {
     if (!formatCheck.test(rawContent)) {
         try {
             await message.delete().catch(() => {});
-            const warning = await message.channel.send(`⚠️ **${message.author.username}**, el formato enviado es incorrecto. Utiliza la plantilla obligatoria:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
+            const warning = await message.channel.send(`⚠️ **${message.author.username}**, formato incorrecto. Utiliza la estructura obligatoria:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
             setTimeout(() => warning.delete().catch(() => {}), 6000);
         } catch (e) {
-            console.error('Error de moderación de formato:', e);
+            console.error(e);
         }
         return;
     }
 
-    if (!data.staff_data[message.author.id]) {
-        data.staff_data[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+    const matches = rawContent.match(formatCheck);
+    const nick = matches[1];
+    const motivo = matches[2];
+    const tiempo = matches[3];
+    let pruebas = matches[4];
+
+    // Si subieron un archivo de Discord (video/imagen), recolectar sus URLs directas
+    if (message.attachments.size > 0) {
+        const attachmentUrls = message.attachments.map(a => a.url).join('\n');
+        pruebas += `\n${attachmentUrls}`;
     }
 
-    data.staff_data[message.author.id][type] += 1;
+    try {
+        await message.delete().catch(() => {});
 
-    data.logs.push({
-        user_id: message.author.id,
-        type: type,
-        content: rawContent,
-        created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
-    });
+        const badge = type === 'baneos' ? '✖️' : type === 'muteos' ? '🔇' : '💗';
+        const color = type === 'baneos' ? '#ff4d4d' : type === 'muteos' ? '#ff9933' : '#ff66b2';
 
-    saveData(data);
-    message.react('✅').catch(() => {});
+        const embedRegistro = new EmbedBuilder()
+            .setTitle(`${badge} Nuevo Registro: ${type.toUpperCase()}`)
+            .setColor(color)
+            .addFields(
+                { name: '👤 Staff Responsable', value: `<@${message.author.id}> (\`${message.author.tag}\`)`, inline: false },
+                { name: '🆔 Nick del Usuario', value: `\`${nick}\``, inline: true },
+                { name: '⏳ Tiempo / Duración', value: `\`${tiempo}\``, inline: true },
+                { name: '📝 Motivo', value: motivo, inline: false },
+                { name: '🔗 Evidencias / Pruebas', value: pruebas, inline: false }
+            )
+            .setTimestamp()
+            .setFooter({ text: 'iLoveTungtung_' });
+
+        // Si el primer enlace detectado es una imagen válida, la renderiza en grande dentro del embed
+        const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
+        const hasImage = pruebas.match(imageRegex);
+        if (hasImage) {
+            embedRegistro.setImage(hasImage[1]);
+        }
+
+        await message.channel.send({ embeds: [embedRegistro] });
+
+        if (!data.staff_data[message.author.id]) {
+            data.staff_data[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+        }
+
+        data.staff_data[message.author.id][type] += 1;
+
+        data.logs.push({
+            user_id: message.author.id,
+            type: type,
+            content: `Nick: ${nick}\nMotivo: ${motivo}\nTiempo: ${tiempo}\nPruebas: ${pruebas}`,
+            created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+        });
+
+        saveData(data);
+    } catch (err) {
+        console.error('Error procesando registro de staff:', err);
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
-    const data = loadData();
 
     if (commandName === 'setup') {
         if (!interaction.member.permissions.has('Administrator')) {
@@ -127,11 +168,16 @@ client.on('interactionCreate', async (interaction) => {
         const tipo = interaction.options.getString('tipo');
         const canal = interaction.options.getChannel('canal');
 
+        const data = loadData();
         data.channels[canal.id] = tipo;
         saveData(data);
 
         return interaction.reply({ content: `Canal para **${tipo}** asignado correctamente en ${canal}.`, ephemeral: true });
     }
+
+    // Evita la expiración de interacciones en entornos de hosting lentos
+    await interaction.deferReply().catch(() => {});
+    const data = loadData();
 
     if (commandName === 'top') {
         const sortedStaff = Object.keys(data.staff_data)
@@ -144,7 +190,7 @@ client.on('interactionCreate', async (interaction) => {
             .slice(0, 10);
 
         if (sortedStaff.length === 0) {
-            return interaction.reply({ content: 'No se encontraron registros en el sistema.' });
+            return interaction.editReply({ content: 'No se encontraron registros en el sistema.' });
         }
 
         const embed = new EmbedBuilder()
@@ -159,7 +205,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         embed.setDescription(list);
-        return interaction.reply({ embeds: [embed] });
+        return interaction.editReply({ embeds: [embed] });
     }
 
     if (commandName === 'evidencias') {
@@ -170,7 +216,7 @@ client.on('interactionCreate', async (interaction) => {
             .reverse();
 
         if (userLogs.length === 0) {
-            return interaction.reply({ content: `El usuario <@${target.id}> no registra evidencias.` });
+            return interaction.editReply({ content: `El usuario <@${target.id}> no registra evidencias.` });
         }
 
         const embed = new EmbedBuilder()
@@ -188,9 +234,8 @@ client.on('interactionCreate', async (interaction) => {
             });
         });
 
-        return interaction.reply({ embeds: [embed] });
+        return interaction.editReply({ embeds: [embed] });
     }
 });
 
 client.login(CONFIG.TOKEN);
-            
