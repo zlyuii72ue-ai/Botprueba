@@ -1,6 +1,15 @@
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, SlashCommandBuilder, Routes, REST } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+
+// --- SERVIDOR WEB PARA EVITAR QUE RAILWAY APAGUE EL BOT ---
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('iLoveTungtung_ activo en producción');
+}).listen(process.env.PORT || 3000, () => {
+    console.log('Servidor de mantenimiento web iniciado de forma correcta.');
+});
 
 const client = new Client({
     intents: [
@@ -70,7 +79,7 @@ const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN);
 })();
 
 client.once('ready', () => {
-    console.log(`Sesión iniciada: ${client.user.tag}`);
+    console.log(`Sesión iniciada de forma exitosa: ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
@@ -102,7 +111,6 @@ client.on('messageCreate', async (message) => {
     const tiempo = matches[3];
     let pruebas = matches[4];
 
-    // Si subieron un archivo de Discord (video/imagen), recolectar sus URLs directas
     if (message.attachments.size > 0) {
         const attachmentUrls = message.attachments.map(a => a.url).join('\n');
         pruebas += `\n${attachmentUrls}`;
@@ -118,7 +126,7 @@ client.on('messageCreate', async (message) => {
             .setTitle(`${badge} Nuevo Registro: ${type.toUpperCase()}`)
             .setColor(color)
             .addFields(
-                { name: '👤 Staff Responsable', value: `<@${message.author.id}> (\`${message.author.tag}\`)`, inline: false },
+                { name: '👤 Staff Responsable', value: `<@${message.author.id}>`, inline: false },
                 { name: '🆔 Nick del Usuario', value: `\`${nick}\``, inline: true },
                 { name: '⏳ Tiempo / Duración', value: `\`${tiempo}\``, inline: true },
                 { name: '📝 Motivo', value: motivo, inline: false },
@@ -127,7 +135,6 @@ client.on('messageCreate', async (message) => {
             .setTimestamp()
             .setFooter({ text: 'iLoveTungtung_' });
 
-        // Si el primer enlace detectado es una imagen válida, la renderiza en grande dentro del embed
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
         const hasImage = pruebas.match(imageRegex);
         if (hasImage) {
@@ -151,7 +158,7 @@ client.on('messageCreate', async (message) => {
 
         saveData(data);
     } catch (err) {
-        console.error('Error procesando registro de staff:', err);
+        console.error('Error procesando registro:', err);
     }
 });
 
@@ -175,7 +182,6 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `Canal para **${tipo}** asignado correctamente en ${canal}.`, ephemeral: true });
     }
 
-    // Evita la expiración de interacciones en entornos de hosting lentos
     await interaction.deferReply().catch(() => {});
     const data = loadData();
 
