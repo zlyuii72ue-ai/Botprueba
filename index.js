@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, SlashCommandBuilder, Routes, REST } = require('discord.js');
-const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('database.db');
+const fs = require('fs');
+const path = require('path');
 
 const client = new Client({
     intents: [
@@ -17,27 +17,24 @@ const CONFIG = {
     GUILD_ID: process.env.GUILD_ID
 };
 
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS staff_data (
-        user_id TEXT PRIMARY KEY,
-        baneos INTEGER DEFAULT 0,
-        muteos INTEGER DEFAULT 0,
-        revives INTEGER DEFAULT 0
-    )`);
+const FILE_PATH = path.join(__dirname, 'database.json');
 
-    db.run(`CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT,
-        type TEXT,
-        content TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+function loadData() {
+    if (!fs.existsSync(FILE_PATH)) {
+        const defaultData = { staff_data: {}, logs: [], channels: {} };
+        fs.writeFileSync(FILE_PATH, JSON.stringify(defaultData, null, 2));
+        return defaultData;
+    }
+    try {
+        return JSON.parse(fs.readFileSync(FILE_PATH, 'utf-8'));
+    } catch (e) {
+        return { staff_data: {}, logs: [], channels: {} };
+    }
+}
 
-    db.run(`CREATE TABLE IF NOT EXISTS channels (
-        type TEXT PRIMARY KEY,
-        channel_id TEXT
-    )`);
-});
+function saveData(data) {
+    fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2));
+}
 
 const commands = [
     new SlashCommandBuilder()
@@ -79,41 +76,48 @@ client.once('ready', () => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    db.all(`SELECT * FROM channels`, async (err, rows) => {
-        if (err) return;
-        
-        const activeChannels = {};
-        rows.forEach(row => { activeChannels[row.channel_id] = row.type; });
+    const data = loadData();
+    const activeChannels = data.channels || {};
+    const type = activeChannels[message.channel.id];
 
-        if (!activeChannels[message.channel.id]) return;
+    if (!type) return;
 
-        const type = activeChannels[message.channel.id];
-        const rawContent = message.content;
-        const formatCheck = /^Nick:\s*(.+)\nMotivo:\s*(.+)\nTiempo:\s*(.+)\nPruebas:\s*(.+)$/i;
+    const rawContent = message.content;
+    const formatCheck = /^Nick:\s*(.+)\nMotivo:\s*(.+)\nTiempo:\s*(.+)\nPruebas:\s*(.+)$/i;
 
-        if (!formatCheck.test(rawContent)) {
-            try {
-                await message.delete();
-                const warning = await message.channel.send(`⚠️ **${message.author.username}**, el formato enviado es incorrecto. Utiliza la plantilla obligatoria:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
-                setTimeout(() => warning.delete().catch(() => {}), 6000);
-            } catch (e) {
-                console.error('Error de moderación de formato:', e);
-            }
-            return;
+    if (!formatCheck.test(rawContent)) {
+        try {
+            await message.delete().catch(() => {});
+            const warning = await message.channel.send(`⚠️ **${message.author.username}**, el formato enviado es incorrecto. Utiliza la plantilla obligatoria:\n\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\``);
+            setTimeout(() => warning.delete().catch(() => {}), 6000);
+        } catch (e) {
+            console.error('Error de moderación de formato:', e);
         }
+        return;
+    }
 
-        db.run(`INSERT OR IGNORE INTO staff_data (user_id) VALUES (?)`, [message.author.id]);
-        db.run(`UPDATE staff_data SET ${type} = ${type} + 1 WHERE user_id = ?`, [message.author.id]);
-        db.run(`INSERT INTO logs (user_id, type, content) VALUES (?, ?, ?)`, [message.author.id, type, rawContent]);
+    if (!data.staff_data[message.author.id]) {
+        data.staff_data[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+    }
 
-        message.react('✅').catch(() => {});
+    data.staff_data[message.author.id][type] += 1;
+
+    data.logs.push({
+        user_id: message.author.id,
+        type: type,
+        content: rawContent,
+        created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
     });
+
+    saveData(data);
+    message.react('✅').catch(() => {});
 });
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
+    const data = loadData();
 
     if (commandName === 'setup') {
         if (!interaction.member.permissions.has('Administrator')) {
@@ -123,66 +127,70 @@ client.on('interactionCreate', async (interaction) => {
         const tipo = interaction.options.getString('tipo');
         const canal = interaction.options.getChannel('canal');
 
-        db.run(`INSERT OR REPLACE INTO channels (type, channel_id) VALUES (?, ?)`, [tipo, canal.id], (err) => {
-            if (err) return interaction.reply({ content: 'Error interno en la base de datos.', ephemeral: true });
-            interaction.reply({ content: `Canal para **${tipo}** asignado correctamente en ${canal}.`, ephemeral: true });
-        });
+        data.channels[canal.id] = tipo;
+        saveData(data);
+
+        return interaction.reply({ content: `Canal para **${tipo}** asignado correctamente en ${canal}.`, ephemeral: true });
     }
 
     if (commandName === 'top') {
-        db.all(`SELECT * FROM staff_data ORDER BY (baneos + muteos + revives) DESC LIMIT 10`, (err, rows) => {
-            if (err) return interaction.reply({ content: 'Error al procesar el ranking.', ephemeral: true });
+        const sortedStaff = Object.keys(data.staff_data)
+            .map(id => ({
+                id,
+                ...data.staff_data[id],
+                total: (data.staff_data[id].baneos || 0) + (data.staff_data[id].muteos || 0) + (data.staff_data[id].revives || 0)
+            }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 10);
 
-            if (rows.length === 0) {
-                return interaction.reply({ content: 'No se encontraron registros en el sistema.' });
-            }
+        if (sortedStaff.length === 0) {
+            return interaction.reply({ content: 'No se encontraron registros en el sistema.' });
+        }
 
-            const embed = new EmbedBuilder()
-                .setTitle('🏆 TOP 10 ACTIVIDAD STAFF 🏆')
-                .setColor('#D4AF37')
-                .setTimestamp()
-                .setFooter({ text: 'iLoveTungtung_' });
+        const embed = new EmbedBuilder()
+            .setTitle('🏆 TOP 10 ACTIVIDAD STAFF 🏆')
+            .setColor('#D4AF37')
+            .setTimestamp()
+            .setFooter({ text: 'iLoveTungtung_' });
 
-            let list = '';
-            rows.forEach((row, i) => {
-                const total = row.baneos + row.muteos + row.revives;
-                list += `**#${i + 1}** <@${row.user_id}> — Total: \`${total}\`\n✖️ \`${row.baneos}\` | 🔇 \`${row.muteos}\` | 💗 \`${row.revives}\`\n\n`;
-            });
-
-            embed.setDescription(list);
-            interaction.reply({ embeds: [embed] });
+        let list = '';
+        sortedStaff.forEach((row, i) => {
+            list += `**#${i + 1}** <@${row.id}> — Total: \`${row.total}\`\n✖️ \`${row.baneos}\` | 🔇 \`${row.muteos}\` | 💗 \`${row.revives}\`\n\n`;
         });
+
+        embed.setDescription(list);
+        return interaction.reply({ embeds: [embed] });
     }
 
     if (commandName === 'evidencias') {
         const target = interaction.options.getUser('usuario') || interaction.user;
+        const userLogs = data.logs
+            .filter(log => log.user_id === target.id)
+            .slice(-5)
+            .reverse();
 
-        db.all(`SELECT * FROM logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 5`, [target.id], (err, rows) => {
-            if (err) return interaction.reply({ content: 'Error al extraer la información.', ephemeral: true });
+        if (userLogs.length === 0) {
+            return interaction.reply({ content: `El usuario <@${target.id}> no registra evidencias.` });
+        }
 
-            if (rows.length === 0) {
-                return interaction.reply({ content: `El usuario <@${target.id}> no registra evidencias.` });
-            }
+        const embed = new EmbedBuilder()
+            .setTitle(`Registros Recientes — ${target.username}`)
+            .setColor('#2B2D31')
+            .setFooter({ text: 'iLoveTungtung_' });
 
-            const embed = new EmbedBuilder()
-                .setTitle(`Registros Recientes — ${target.username}`)
-                .setColor('#2B2D31')
-                .setFooter({ text: 'iLoveTungtung_' });
-
-            rows.forEach((row, index) => {
-                const badge = row.type === 'baneos' ? '✖️' : row.type === 'muteos' ? '🔇' : '💗';
-                const trimmedText = row.content.length > 250 ? row.content.substring(0, 250) + '...' : row.content;
-                
-                embed.addFields({
-                    name: `[${index + 1}] Acción: ${badge} ${row.type.toUpperCase()}`,
-                    value: `\`\`\`\n${trimmedText}\n\`\`\`*Fecha: ${row.created_at}*`
-                });
+        userLogs.forEach((row, index) => {
+            const badge = row.type === 'baneos' ? '✖️' : row.type === 'muteos' ? '🔇' : '💗';
+            const trimmedText = row.content.length > 250 ? row.content.substring(0, 250) + '...' : row.content;
+            
+            embed.addFields({
+                name: `[${index + 1}] Acción: ${badge} ${row.type.toUpperCase()}`,
+                value: `\`\`\`\n${trimmedText}\n\`\`\`*Fecha: ${row.created_at}*`
             });
-
-            interaction.reply({ embeds: [embed] });
         });
+
+        return interaction.reply({ embeds: [embed] });
     }
 });
 
 client.login(CONFIG.TOKEN);
-          
+            
