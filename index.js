@@ -1,7 +1,8 @@
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, SlashCommandBuilder, Routes, REST } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, SlashCommandBuilder, Routes, REST, AttachmentBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const axios = require('axios');
 
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -97,6 +98,7 @@ client.on('messageCreate', async (message) => {
 
     const content = message.content.trim();
     
+    // Regex actualizadas: Pruebas ya no es obligatorio ni se busca estrictamente
     const nickRegex = /^[^\n]*Nick:\s*([^\n]+)/im;
     const motivoRegex = /^[^\n]*Motivo:\s*([^\n]+)/im;
     const tiempoRegex = /^[^\n]*Tiempo:\s*([^\n]+)/im;
@@ -109,7 +111,8 @@ client.on('messageCreate', async (message) => {
 
     const canDelete = message.guild?.members?.me?.permissionsIn(message.channel).has('ManageMessages');
 
-    if (!matchNick || !matchMotivo || !matchTiempo || !matchPruebas) {
+    // Solo Nick, Motivo y Tiempo son obligatorios obligatoriamente
+    if (!matchNick || !matchMotivo || !matchTiempo) {
         try {
             if (canDelete && message.deletable) {
                 await message.delete().catch(() => {});
@@ -117,8 +120,8 @@ client.on('messageCreate', async (message) => {
             
             const errorEmbed = new EmbedBuilder()
                 .setTitle('⚠️ Formato Incorrecto')
-                .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio:`)
-                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
+                .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio básico:`)
+                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\n\`\`\`\n*(Opcional puedes agregar Pruebas: o adjuntar una foto)*' })
                 .setColor('#2f3171')
                 .setTimestamp();
 
@@ -133,16 +136,40 @@ client.on('messageCreate', async (message) => {
     const nick = matchNick[1].trim();
     const motivo = matchMotivo[1].trim();
     const tiempo = matchTiempo[1].trim();
-    let pruebas = matchPruebas[1].trim();
+    
+    // Si escribió el campo Pruebas lo extrae, si no, queda vacío
+    let pruebasTexto = matchPruebas ? matchPruebas[1].trim() : '';
 
-    // Guardamos los archivos adjuntos directos del mensaje si existen
-    let adjuntosSeparados = [];
+    // Guardar enlaces detectados en el texto
+    let linksEncontrados = [];
+    if (pruebasTexto.length > 0) {
+        const linkRegex = /(https?:\/\/[^\s]+)/gi;
+        linksEncontrados = pruebasTexto.match(linkRegex) || [];
+    }
+
+    // Almacén para buffers de imágenes descargadas
+    const imagenesParaEnviar = [];
+
+    // Descargar archivos adjuntos directos del mensaje de forma anónima
     if (message.attachments.size > 0) {
-        adjuntosSeparados = message.attachments.map(a => a.url);
-        pruebas += `\n${adjuntosSeparados.join('\n')}`;
+        for (const attachment of message.attachments.values()) {
+            // Verificar si el archivo adjunto es una imagen
+            if (attachment.contentType?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(attachment.url)) {
+                try {
+                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+                    const buffer = Buffer.from(response.data, 'binary');
+                    const nombreArchivo = `evidencia_${Date.now()}_${attachment.name}`;
+                    
+                    imagenesParaEnviar.push(new AttachmentBuilder(buffer, { name: nombreArchivo }));
+                } catch (err) {
+                    console.error('Error descargando adjunto:', err);
+                }
+            }
+        }
     }
 
     try {
+        // Borramos inmediatamente el mensaje del Staff para no dejar rastro
         if (canDelete && message.deletable) {
             await message.delete().catch(() => {});
         }
@@ -185,41 +212,32 @@ client.on('messageCreate', async (message) => {
             )
             .setTimestamp();
 
-        // Detectar si hay links dentro del texto de Pruebas
-        const linkRegex = /(https?:\/\/[^\s]+)/gi;
-        const linksEncontrados = pruebas.match(linkRegex) || [];
-
-        // Si hay una imagen en el texto, la renderizamos de portada en el embed principal
-        const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
-        const imgMatch = pruebas.match(imageRegex);
-        if (imgMatch) {
-            embed.setImage(imgMatch[1]);
+        // Si se extrajo texto en pruebas que no sean puros links, se añade al embed
+        if (pruebasTexto.length > 0) {
+            embed.addFields({ name: 'Evidencias', value: pruebasTexto, inline: false });
         }
 
-        if (pruebas.length > 0) {
-            embed.addFields({ name: 'Evidencias', value: pruebas, inline: false });
-        }
-
-        // 1. Enviamos primero la Sanción Estructurada
+        // 1. Enviar el embed de la sanción estructural
         await message.channel.send({ embeds: [embed] });
 
-        // 2. Enviamos el mensaje aparte con todas las fotos y links recopilados
-        const todasLasEvidencias = [...linksEncontrados, ...adjuntosSeparados];
-        
-        if (todasLasEvidencias.length > 0) {
-            // Eliminamos duplicados por si acaso
-            const listaLimpia = [...new Set(todasLasEvidencias)];
-            
-            // Enviamos el contenido multimedia fuera del embed de manera limpia
+        // 2. Enviar los links de texto si existían (sin decir quién los mandó)
+        if (linksEncontrados.length > 0) {
             await message.channel.send({
-                content: `🖼️ **Archivos y Enlaces de Evidencia adjuntos por ${message.author}:**\n${listaLimpia.join('\n')}`
+                content: `${linksEncontrados.join('\n')}`
+            }).catch(() => {});
+        }
+
+        // 3. Enviar las imágenes descargadas de forma limpia (Mensaje propio del bot, 100% anónimo)
+        if (imagenesParaEnviar.length > 0) {
+            await message.channel.send({
+                files: imagenesParaEnviar
             }).catch(() => {});
         }
 
         data.logs.push({
             user_id: message.author.id,
             type: type,
-            content: `Nick: ${nick}\nMotivo: ${motivo}\nTiempo: ${tiempo}\nPruebas: ${pruebas}`,
+            content: `Nick: ${nick}\nMotivo: ${motivo}\nTiempo: ${tiempo}\nPruebas: ${pruebasTexto}`,
             date: new Date().toISOString().replace('T', ' ').substring(0, 19)
         });
 
