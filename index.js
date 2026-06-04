@@ -118,7 +118,7 @@ client.on('messageCreate', async (message) => {
             const errorEmbed = new EmbedBuilder()
                 .setTitle('Error de Formato')
                 .setDescription(`Estructura incorrecta de parte de ${message.author.username}.\n\nUse la plantilla exacta obligatoria:`)
-                .addFields({ name: 'Plantilla Requerida', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
+                .addFields({ name: 'Plantilla Requerida', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`` })
                 .setColor('#2f3171')
                 .setTimestamp();
 
@@ -143,38 +143,58 @@ client.on('messageCreate', async (message) => {
     try {
         if (message.deletable) await message.delete();
 
+        if (!data.staff[message.author.id]) {
+            data.staff[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+        }
+
+        data.staff[message.author.id][type] += 1;
+        const totalSancionesTipo = data.staff[message.author.id][type];
+
+        const titleMap = {
+            baneos: '🔨 BAN REGISTRADO',
+            muteos: '🔉 MUTE REGISTRADO',
+            revives: '💚 REVIVE REGISTRADO'
+        };
+
         const colorMap = {
             baneos: '#2f3171',
             muteos: '#4b306b',
             revives: '#1d4ed8'
         };
 
-        const embed = new EmbedBuilder()
-            .setTitle(`Registro: ${type.toUpperCase()}`)
-            .setColor(colorMap[type] || '#2b2d31')
-            .addFields(
-                { name: 'Personal Responsable', value: `${message.author} (${message.author.id})`, inline: false },
-                { name: 'Nick de Usuario', value: `\`${nick}\``, inline: true },
-                { name: 'Duracion', value: `\`${tiempo}\``, inline: true },
-                { name: 'Motivo', value: motivo, inline: false },
-                { name: 'Evidencias', value: pruebas, inline: false }
-            )
-            .setTimestamp()
-            .setFooter({ text: 'iLoveTungtung_' });
+        const fieldTotalMap = {
+            baneos: 'Total Bans',
+            muteos: 'Total Mutes',
+            revives: 'Total Revives'
+        };
 
+        const embed = new EmbedBuilder()
+            .setTitle(titleMap[type] || 'REGISTRO')
+            .setColor(colorMap[type] || '#2b2d31')
+            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+            .addFields(
+                { name: 'Staff', value: `${message.author}`, inline: false },
+                { name: 'Nick Sancionado', value: nick, inline: false },
+                { name: 'Duracion', value: tiempo, inline: false },
+                { name: fieldTotalMap[type], value: String(totalSancionesTipo), inline: false },
+                { name: 'Motivo', value: motivo, inline: false }
+            )
+            .setTimestamp();
+
+        // Si se incluyen links de imágenes en la sección Pruebas, se renderizan en el embed
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
         const imgMatch = pruebas.match(imageRegex);
         if (imgMatch) {
             embed.setImage(imgMatch[1]);
         }
 
-        await message.channel.send({ embeds: [embed] });
-
-        if (!data.staff[message.author.id]) {
-            data.staff[message.author.id] = { baneos: 0, muteos: 0, revives: 0 };
+        // Si hay texto adicional, enlaces o evidencias, se anexan al final de forma limpia
+        if (pruebas.length > 0) {
+            embed.addFields({ name: 'Evidencias', value: pruebas, inline: false });
         }
 
-        data.staff[message.author.id][type] += 1;
+        await message.channel.send({ embeds: [embed] });
+
         data.logs.push({
             user_id: message.author.id,
             type: type,
@@ -293,4 +313,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(CONFIG.TOKEN);
-        
+            
