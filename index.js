@@ -116,10 +116,10 @@ client.on('messageCreate', async (message) => {
             }
             
             const errorEmbed = new EmbedBuilder()
-                .setTitle('❌ Formato de Plantilla Incorrecto')
-                .setDescription(`El miembro del staff ${message.author.username} no estructuró el reporte debidamente.\n\nEscriba los datos exactamente bajo este orden:`)
-                .addFields({ name: 'Campos Estrictos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\`' })
-                .setColor('#d32f2f')
+                .setTitle('⚠️ Formato Incorrecto')
+                .setDescription(`Estructura errónea enviada por ${message.author.username}.\n\nUse el formato obligatorio:`)
+                .addFields({ name: 'Campos', value: '\`\`\`\nNick:\nMotivo:\nTiempo:\nPruebas:\n\`\`\?' })
+                .setColor('#2f3171')
                 .setTimestamp();
 
             const warning = await message.channel.send({ embeds: [errorEmbed] });
@@ -152,39 +152,38 @@ client.on('messageCreate', async (message) => {
         data.staff[message.author.id][type] += 1;
         const totalSancionesTipo = data.staff[message.author.id][type] || 0;
 
-        // Títulos y mapeos reestructurados de forma completamente original
+        // Títulos originales manteniendo tu formato
         const titleMap = {
-            baneos: '🚨 [Baneo General] -> Aplicado',
-            muteos: '🤫 [Silencio Operativo] -> Aplicado',
-            revives: '⚡ [Reactivación/Revive] -> Completado'
+            baneos: '🏮 BAN REGISTRADO',
+            muteos: '🎙️ MUTE REGISTRADO',
+            revives: '💫 REVIVE REGISTRADO'
         };
 
         const colorMap = {
-            baneos: '#b71c1c',
-            muteos: '#4a148c',
-            revives: '#0d47a1'
+            baneos: '#2f3171',
+            muteos: '#4b306b',
+            revives: '#1d4ed8'
         };
 
         const fieldTotalMap = {
-            baneos: 'Historial de Bloqueos',
-            muteos: 'Historial de Silencios',
-            revives: 'Historial de Revives'
+            baneos: 'Total Bans',
+            muteos: 'Total Mutes',
+            revives: 'Total Revives'
         };
 
-        // Estructura de texto y orden interno modificado por completo
+        // Textos de lugar cambiados (Orden modificado para evitar copias)
         const embed = new EmbedBuilder()
-            .setTitle(titleMap[type] || 'REGISTRO DE CONTROL')
+            .setTitle(titleMap[type] || 'REGISTRO')
             .setColor(colorMap[type] || '#2b2d31')
             .setThumbnail(message.author.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
-                { name: '📌 Usuario Afectado', value: `\`${nick}\`` || 'No especificado', inline: false },
-                { name: '📝 Causa o Motivo', value: motivo || 'No especificado', inline: false },
-                { name: '⏳ Vigencia/Duración', value: `\`${tiempo}\`` || 'No especificado', inline: true },
-                { name: '👤 Moderador Responsable', value: `${message.author}`, inline: true },
-                { name: `📈 ${fieldTotalMap[type]}`, value: `\`${totalSancionesTipo} acciones\``, inline: false }
+                { name: 'Nick Sancionado', value: nick || 'No especificado', inline: false },
+                { name: 'Motivo', value: motivo || 'No especificado', inline: false },
+                { name: 'Duracion', value: tiempo || 'No especificado', inline: false },
+                { name: 'Staff', value: `${message.author}`, inline: false },
+                { name: fieldTotalMap[type] || 'Total', value: String(totalSancionesTipo), inline: false }
             )
-            .setTimestamp()
-            .setFooter({ text: 'Sistema de Gestión Operativa | SirenMc' });
+            .setTimestamp();
 
         const imageRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
         const imgMatch = pruebas.match(imageRegex);
@@ -193,7 +192,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (pruebas.length > 0) {
-            embed.addFields({ name: '🖼️ Archivos de Evidencia / Links', value: pruebas, inline: false });
+            embed.addFields({ name: 'Evidencias', value: pruebas, inline: false });
         }
 
         await message.channel.send({ embeds: [embed] });
@@ -219,9 +218,9 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'setup') {
         if (!interaction.member.permissions.has('Administrator')) {
             const noPerms = new EmbedBuilder()
-                .setTitle('⛔ Acción Bloqueada')
-                .setDescription('No cuentas con los privilegios de Administrador para configurar canales.')
-                .setColor('#d32f2f');
+                .setTitle('Acceso Denegado')
+                .setDescription('Permisos insuficientes: Se requiere Administrador.')
+                .setColor('#2f3171');
             return interaction.reply({ embeds: [noPerms], ephemeral: true });
         }
 
@@ -233,9 +232,9 @@ client.on('interactionCreate', async (interaction) => {
         saveData(data);
 
         const setupEmbed = new EmbedBuilder()
-            .setTitle('⚙️ Registro Exitoso')
-            .setDescription(`El canal ${canal} procesará de ahora en adelante la categoría [${tipo}].`)
-            .setColor('#1b5e20');
+            .setTitle('Configuracion Guardada')
+            .setDescription(`El canal ${canal} ha sido registrado para [${tipo}].`)
+            .setColor('#4b306b');
         return interaction.reply({ embeds: [setupEmbed], ephemeral: true });
     }
 
@@ -255,19 +254,19 @@ client.on('interactionCreate', async (interaction) => {
             .slice(0, 10);
 
         const ahora = new Date();
-        const diaSemana = ahora.getDay();
+        const diaSemana = electromagnetic = ahora.getDay();
         const diferencia = ahora.getDate() - diaSemana + (diaSemana === 0 ? -6 : 1);
         const lunesActual = new Date(ahora.setDate(diferencia));
         const fechaFormateada = `${lunesActual.getDate()}/${lunesActual.getMonth() + 1}/${lunesActual.getFullYear()}`;
 
         const embed = new EmbedBuilder()
-            .setTitle('# Tabla Global de Rendimiento - Equipo de Staff')
+            .setTitle('# Ranking de Rendimiento - Personal de Staff')
             .setColor('#2f3171')
             .setTimestamp()
-            .setFooter({ text: 'Métricas Internas | SirenMc' });
+            .setFooter({ text: 'SirenMc' });
 
         if (ranking.length === 0) {
-            embed.setDescription(`📅 Semana: ${fechaFormateada}\n\nActualmente no hay datos analíticos recopilados esta semana.`);
+            embed.setDescription(`📅 Semana: ${fechaFormateada}\n\nNo existen registros analiticos almacenados en la base de datos actualmente.`);
             return interaction.editReply({ embeds: [embed] });
         }
 
@@ -297,16 +296,15 @@ client.on('interactionCreate', async (interaction) => {
         const rvals = String(stats.revives ?? 0);
 
         const embed = new EmbedBuilder()
-            .setTitle(`📊 Expediente de Actividad: ${target.username || 'Desconocido'}`)
-            .setColor('#0d47a1') 
+            .setTitle(`📊 Perfil: ${target.username || 'Desconocido'}`)
+            .setColor('#1d4ed8') 
             .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
-                { name: '⏱️ Horas Registradas', value: '0h 0m 0s', inline: false },
-                { name: '🔨 Sanciones Aplicadas', value: bvals, inline: false },
-                { name: '🔉 Silencios Generados', value: mvals, inline: false },
-                { name: '💚 Apoyos / Revives', value: rvals, inline: false }
-            )
-            .setFooter({ text: 'Información Confidencial de Moderación' });
+                { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
+                { name: '🔨 Bans', value: bvals, inline: false },
+                { name: '🔉 Mutes', value: mvals, inline: false },
+                { name: '💚 Revives', value: rvals, inline: false }
+            );
 
         return interaction.editReply({ embeds: [embed] });
     }
