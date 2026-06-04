@@ -148,7 +148,7 @@ client.on('messageCreate', async (message) => {
         }
 
         data.staff[message.author.id][type] += 1;
-        const totalSancionesTipo = data.staff[message.author.id][type];
+        const totalSancionesTipo = data.staff[message.author.id][type] || 0;
 
         const titleMap = {
             baneos: '🔨 BAN REGISTRADO',
@@ -171,13 +171,13 @@ client.on('messageCreate', async (message) => {
         const embed = new EmbedBuilder()
             .setTitle(titleMap[type] || 'REGISTRO')
             .setColor(colorMap[type] || '#2b2d31')
-            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+            .setThumbnail(message.author.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
                 { name: 'Staff', value: `${message.author}`, inline: false },
-                { name: 'Nick Sancionado', value: nick, inline: false },
-                { name: 'Duracion', value: tiempo, inline: false },
-                { name: fieldTotalMap[type], value: String(totalSancionesTipo), inline: false },
-                { name: 'Motivo', value: motivo, inline: false }
+                { name: 'Nick Sancionado', value: nick || 'No especificado', inline: false },
+                { name: 'Duracion', value: tiempo || 'No especificado', inline: false },
+                { name: fieldTotalMap[type] || 'Total', value: String(totalSancionesTipo), inline: false },
+                { name: 'Motivo', value: motivo || 'No especificado', inline: false }
             )
             .setTimestamp();
 
@@ -283,18 +283,24 @@ client.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'evidencias') {
         const target = interaction.options.getUser('usuario') || interaction.user;
-        const stats = data.staff[target.id] || { baneos: 0, muteos: 0, revives: 0 };
+        
+        // Evita errores de lectura si el usuario no tiene registros previos asignados
+        const staffData = data.staff || {};
+        const stats = staffData[target.id] || { baneos: 0, muteos: 0, revives: 0 };
 
-        // Ajuste de interfaz idéntica a la maqueta de 1000032757.png
+        const bvals = String(stats.baneos ?? 0);
+        const mvals = String(stats.muteos ?? 0);
+        const rvals = String(stats.revives ?? 0);
+
         const embed = new EmbedBuilder()
-            .setTitle(`📊 Perfil: ${target.username}`)
+            .setTitle(`📊 Perfil: ${target.username || 'Desconocido'}`)
             .setColor('#1d4ed8') 
-            .setThumbnail(target.displayAvatarURL({ dynamic: true }))
+            .setThumbnail(target.displayAvatarURL({ dynamic: true }) || null)
             .addFields(
                 { name: '⏳ Tiempo Total', value: '0h 0m 0s', inline: false },
-                { name: '🔨 Bans', value: String(stats.baneos), inline: false },
-                { name: '🔉 Mutes', value: String(stats.muteos), inline: false },
-                { name: '💚 Revives', value: String(stats.revives), inline: false }
+                { name: '🔨 Bans', value: bvals, inline: false },
+                { name: '🔉 Mutes', value: mvals, inline: false },
+                { name: '💚 Revives', value: rvals, inline: false }
             );
 
         return interaction.editReply({ embeds: [embed] });
