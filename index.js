@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, ApplicationCommandOptionType, EmbedBuilder, resolveColor } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, ApplicationCommandOptionType, EmbedBuilder, resolveColor, Events } = require('discord.js');
 const express = require('express');
 
 const app = express();
@@ -22,14 +22,18 @@ const commands = [
     }
 ];
 
-client.once('ready', async () => {
+// Corregido usando Events.ClientReady
+client.once(Events.ClientReady, async () => {
     if (client.user.username !== 'MineHave Staff Bot') {
         await client.user.setUsername('MineHave Staff Bot').catch(() => {});
     }
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-    } catch (e) {}
+        console.log('¡Bot MineHave conectado y comandos registrados correctamente!');
+    } catch (e) {
+        console.error(e);
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -48,7 +52,6 @@ client.on('interactionCreate', async (interaction) => {
     const embed = new EmbedBuilder().setDescription(texto);
     if (titulo) embed.setTitle(titulo);
 
-    // Sistema de color corregido
     let finalColor = '#0099ff'; 
     if (colorInput) {
         let cleanColor = colorInput.replace('#', '').trim();
