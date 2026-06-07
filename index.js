@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, ApplicationCommandOptionType, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, ApplicationCommandOptionType, EmbedBuilder, resolveColor } = require('discord.js');
 const express = require('express');
 
 const app = express();
@@ -15,7 +15,7 @@ const commands = [
         options: [
             { name: 'texto', description: 'Cuerpo del Embed', type: ApplicationCommandOptionType.String, required: true },
             { name: 'titulo', description: 'Título del Embed', type: ApplicationCommandOptionType.String, required: false },
-            { name: 'color', description: 'Color HEX (Ej: #FF5733)', type: ApplicationCommandOptionType.String, required: false },
+            { name: 'color', description: 'Color HEX (Ej: FF5733 o #FF5733)', type: ApplicationCommandOptionType.String, required: false },
             { name: 'fuera', description: 'Texto fuera del Embed', type: ApplicationCommandOptionType.String, required: false },
             { name: 'multimedia', description: 'Foto o video', type: ApplicationCommandOptionType.Attachment, required: false }
         ]
@@ -41,21 +41,36 @@ client.on('interactionCreate', async (interaction) => {
 
     const texto = interaction.options.getString('texto');
     const titulo = interaction.options.getString('titulo');
-    const color = interaction.options.getString('color') || '#0099ff';
+    const colorInput = interaction.options.getString('color');
     const fuera = interaction.options.getString('fuera');
     const multimedia = interaction.options.getAttachment('multimedia');
 
     const embed = new EmbedBuilder().setDescription(texto);
     if (titulo) embed.setTitle(titulo);
-    try { embed.setColor(color); } catch { embed.setColor('#0099ff'); }
 
-    if (multimedia && multimedia.contentType.startsWith('image/')) {
+    // Sistema de color corregido
+    let finalColor = '#0099ff'; 
+    if (colorInput) {
+        let cleanColor = colorInput.replace('#', '').trim();
+        if (/^[0-9A-Fa-f]{6}$/.test(cleanColor)) {
+            finalColor = parseInt(cleanColor, 16);
+        } else {
+            try {
+                finalColor = resolveColor(colorInput);
+            } catch {
+                finalColor = '#0099ff';
+            }
+        }
+    }
+    embed.setColor(finalColor);
+
+    if (multimedia && multimedia.contentType && multimedia.contentType.startsWith('image/')) {
         embed.setImage(multimedia.url);
     }
 
     const respuesta = { embeds: [embed] };
     if (fuera) respuesta.content = fuera;
-    if (multimedia && !multimedia.contentType.startsWith('image/')) {
+    if (multimedia && multimedia.contentType && !multimedia.contentType.startsWith('image/')) {
         respuesta.files = [multimedia.url];
     }
 
